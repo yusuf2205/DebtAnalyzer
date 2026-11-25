@@ -1,0 +1,367 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  FINANCE
+  MANAGER
+  VIEWER
+}
+
+enum CurrencyCode {
+  USD
+  UZS
+  RUB
+  EUR
+}
+
+enum EntityStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ImportStatus {
+  UPLOADED
+  ANALYZED
+  COMMITTING
+  COMMITTED
+  FAILED
+}
+
+enum RateStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  REJECTED
+}
+
+enum ReconStatus {
+  PENDING
+  MATCHED
+  CONFIRMED
+  REJECTED
+}
+
+enum PlanSource {
+  IMPORT
+  MANUAL
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  name               String
+  passwordHash       String
+  role               Role
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  failedLogins       Int       @default(0)
+  lockedUntil        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  sessions           Session[]
+}
+
+model Session {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  csrfToken String
+  ip        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Журнал аудита. Только добавление: UPDATE/DELETE запрещены триггером БД (см. миграцию).
+model AuditLog {
+  id       BigInt   @id @default(autoincrement())
+  at       DateTime @default(now())
+  userId   String?
+  userEmail String?
+  action   String
+  entity   String
+  entityId String?
+  before   Json?
+  after    Json?
+  meta     Json?
+  ip       String?
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([at])
+}
+
+model Supplier {
+  id         String       @id @default(uuid())
+  name       String
+  taxId      String?
+  status     EntityStatus @default(ACTIVE)
+  mergedIntoId String?
+  mergedInto Supplier?    @relation("SupplierMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom Supplier[]   @relation("SupplierMerge")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  aliases    SupplierAlias[]
+  contracts  Contract[]
+
+  @@index([name])
+}
+
+/// Каждое исходное написание поставщика. exactKey уникален: одно написание -> один поставщик.
+model SupplierAlias {
+  id         String   @id @default(uuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  alias      String
+  exactKey   String   @unique
+  source     String   @default("IMPORT")
+  createdAt  DateTime @default(now())
+
+  @@index([supplierId])
+}
+
+model Contract {
+  id           String       @id @default(uuid())
+  supplierId   String
+  supplier     Supplier     @relation(fields: [supplierId], references: [id])
+  project      String?
+  number       String?
+  contractDate DateTime?    @db.Date
+  goods        String?
+  amount       Decimal      @db.Decimal(24, 2)
+  currency     CurrencyCode
+  /// Базовый (подтверждённый) начальный оплаченный остаток. Меняется только через сверку.
+  openingPaid  Decimal      @db.Decimal(24, 2)
+  /// Последнее импортированное значение «Оплачено» (для обнаружения изменений в источнике).
+  sourcePaid   Decimal?     @db.Decimal(24, 2)
+  executor     String?
+  notes        String?
+  status       EntityStatus @default(ACTIVE)
+  /// Ключ идентичности строки источника (поставщик|договор|товар#n)
+  identityKey  String       @unique
+  sourceBatchId String?
+  sourceRow    Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  plans        PlanEntry[]
+  documents    ContractDocument[]
+  payments     Payment[]
+
+  @@index([supplierId])
+  @@index([currency])
+  @@index([project])
+}
+
+/// Плановые платежи. Никогда не участвуют в расчёте задолженности.
+model PlanEntry {
+  id         String       @id @default(uuid())
+  contractId String
+  contract   Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  year       Int
+  month      Int
+  week       Int
+  amount     Decimal      @db.Decimal(24, 2)
+  currency   CurrencyCode
+  source     PlanSource   @default(IMPORT)
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  @@index([contractId])
+  @@index([year, month, week])
+}
+
+model FxRate {
+  id            String       @id @default(uuid())
+  currency      CurrencyCode
+  /// Сколько UZS за 1 единицу валюты
+  uzsPerUnit    Decimal      @db.Decimal(24, 8)
+  effectiveDate DateTime?    @db.Date
+  source        String
+  status        RateStatus   @default(PENDING_CONFIRMATION)
+  setById       String?
+  confirmedById String?
+  confirmedAt   DateTime?
+  createdAt     DateTime     @default(now())
+
+  @@index([currency, effectiveDate])
+}
+
+model ImportBatch {
+  id          String       @id @default(uuid())
+  filename    String
+  fileSha256  String
+  filePath    String
+  status      ImportStatus @default(UPLOADED)
+  sheetName   String?
+  mapping     Json?
+  overrides   Json?
+  planYear    Int?
+  summary     Json?
+  extras      Json?
+  sheets      Json?
+  report      Json?
+  createdById String
+  sourceId    String?
+  createdAt   DateTime     @default(now())
+  committedAt DateTime?
+  rows        ImportRow[]
+
+  @@index([fileSha256])
+  @@index([createdAt])
+  @@index([sourceId])
+}
+
+model ImportRow {
+  id        String      @id @default(uuid())
+  batchId   String
+  batch     ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber Int
+  status    String
+  data      Json
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId, status])
+}
+
+model ReconciliationTask {
+  id         String      @id @default(uuid())
+  type       String
+  status     ReconStatus @default(PENDING)
+  contractId String?
+  batchId    String?
+  details    Json
+  resolution Json?
+  resolvedById String?
+  resolvedAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  @@index([status])
+  @@index([contractId])
+}
+
+/// Прикреплённые документы договора. Удаление мягкое (deletedAt): файл и запись остаются для аудита.
+model ContractDocument {
+  id           String    @id @default(uuid())
+  contractId   String
+  contract     Contract  @relation(fields: [contractId], references: [id])
+  filename     String
+  mime         String
+  size         Int
+  sha256       String
+  path         String
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+  deletedById  String?
+
+  @@index([contractId])
+}
+
+enum GoogleMode {
+  PUBLIC
+  OAUTH
+}
+
+/// Подключённый Google-аккаунт пользователя. Refresh-токен хранится только в зашифрованном виде (AES-256-GCM).
+model GoogleCredential {
+  id              String         @id @default(uuid())
+  userId          String         @unique
+  email           String?
+  refreshTokenEnc String
+  scope           String
+  createdAt       DateTime       @default(now())
+  sources         GoogleSource[]
+}
+
+/// Источник данных — таблица Google Sheets. Приложение только читает её и никогда не изменяет.
+model GoogleSource {
+  id              String            @id @default(uuid())
+  name            String
+  url             String
+  spreadsheetId   String
+  mode            GoogleMode
+  credentialId    String?
+  credential      GoogleCredential? @relation(fields: [credentialId], references: [id])
+  sheetName       String
+  planYear        Int
+  autoSync        Boolean           @default(false)
+  intervalMinutes Int               @default(60)
+  lastSyncAt      DateTime?
+  nextSyncAt      DateTime?
+  /// CHANGES | UNCHANGED | ERROR
+  lastStatus      String?
+  lastError       String?
+  lastBatchId     String?
+  lastChanges     Json?
+  lastSha         String?
+  syncStartedAt   DateTime?
+  createdById     String
+  createdAt       DateTime          @default(now())
+
+  @@index([autoSync, nextSyncAt])
+}
+
+enum PaymentStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PaymentKind {
+  PAYMENT
+  REFUND
+  REVERSAL
+}
+
+/// Фактический платёж. Участвует в долге только в статусе APPROVED. Подтверждённый платёж неизменяем и не удаляется
+/// (триггер БД): исправление — сторно (REVERSAL) и новый платёж. Поставщик определяется через договор.
+model Payment {
+  id                 String        @id @default(uuid())
+  contractId         String
+  contract           Contract      @relation(fields: [contractId], references: [id])
+  paymentDate        DateTime      @db.Date
+  amount             Decimal       @db.Decimal(24, 2)
+  currency           CurrencyCode
+  kind               PaymentKind   @default(PAYMENT)
+  status             PaymentStatus @default(DRAFT)
+  bankDocument       String?
+  transactionNo      String?
+  comment            String?
+  createdById        String
+  submittedAt        DateTime?
+  approvedById       String?
+  approvedAt         DateTime?
+  rejectedById       String?
+  rejectedAt         DateTime?
+  rejectReason       String?
+  /// Ключ идемпотентности: повторная отправка той же формы не создаёт второй платёж.
+  idempotencyKey     String        @unique
+  /// Влияние на «оплачено» (+ платёж, − возврат/сторно платежа). Задаётся в момент подтверждения.
+  signedAmount       Decimal?      @db.Decimal(24, 2)
+  /// true — платёж уже учтён в импортированном «Оплачено» (подтверждено сверкой): повторно не вычитается.
+  reflectedInOpening Boolean       @default(false)
+  reflectedTaskId    String?
+  reversesPaymentId  String?       @unique
+  reversalReason     String?
+  correctsPaymentId  String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([contractId])
+  @@index([status])
+  @@index([paymentDate])
+}

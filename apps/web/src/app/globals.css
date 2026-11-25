@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #f7f8fa; --panel: #ffffff; --border: #e3e6eb; --text: #14181f; --muted: #66707f;
+  --paid: #15803d; --debt: #b91c1c; --pending: #c2570c; --plan: #1d4ed8; --accent: #1f2937;
+}
+.dark {
+  --bg: #0e1116; --panel: #161a21; --border: #262c36; --text: #e6e9ee; --muted: #8b95a5;
+  --paid: #4ade80; --debt: #f87171; --pending: #fb923c; --plan: #60a5fa; --accent: #e6e9ee;
+}
+@media (prefers-color-scheme: dark) { :root:not(.light) { --bg: #0e1116; --panel: #161a21; --border: #262c36; --text: #e6e9ee; --muted: #8b95a5; --paid: #4ade80; --debt: #f87171; --pending: #fb923c; --plan: #60a5fa; --accent: #e6e9ee; } }
+
+html { color-scheme: light dark; }
+body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.muted { color: var(--muted); }
+.btn { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 12px; font-weight: 500; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.input { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 6px 10px; color: var(--text); }
+.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tbl th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.tbl tr:hover td { background: color-mix(in srgb, var(--border) 35%, transparent); }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid currentColor; }
+.b-ok { color: var(--paid); } .b-err { color: var(--debt); } .b-warn { color: var(--pending); } .b-info { color: var(--plan); } .b-mute { color: var(--muted); }

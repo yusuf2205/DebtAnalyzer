@@ -1,0 +1,18 @@
+{
+  "name": "@pf/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./import": { "types": "./dist/import/index.d.ts", "default": "./dist/import/index.js" }
+  },
+  "typesVersions": { "*": { "import": ["dist/import/index.d.ts"] } },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": { "decimal.js": "^10.4.3", "exceljs": "^4.4.0" },
+  "devDependencies": { "typescript": "^5.6.0", "vitest": "^2.1.0", "@types/node": "^22.0.0" }
+}

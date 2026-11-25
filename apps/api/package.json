@@ -1,0 +1,46 @@
+{
+  "name": "@pf/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
+    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "^6.4.0",
+    "@node-rs/argon2": "^2.0.2",
+    "@pf/shared": "*",
+    "@prisma/client": "^6.1.0",
+    "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
+    "helmet": "^8.0.0",
+    "pg-boss": "^10.1.5",
+    "prisma": "^6.1.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.10.0",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.0.0",
+    "@types/supertest": "^6.0.2",
+    "embedded-postgres": "^19.0.0-beta.20",
+    "supertest": "^7.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.0",
+    "unplugin-swc": "^1.5.1",
+    "vitest": "^2.1.0"
+  }
+}

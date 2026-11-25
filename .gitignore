@@ -1,0 +1,17 @@
+node_modules
+dist
+.next
+.env
+.env.*
+!.env.example
+*.xlsx
+*.xls
+*.csv
+!packages/shared/test/fixtures/*.csv
+backups/
+uploads/
+coverage
+*.tsbuildinfo
+.pgdata*
+.playwright-mcp/
+.claude/

@@ -1,0 +1,13 @@
+{
+  "name": "procurement-finance",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build:shared": "npm run build -w @pf/shared",
+    "test": "npm run test -w @pf/shared && npm run test -w @pf/api",
+    "dev:api": "npm run start:dev -w @pf/api",
+    "dev:web": "npm run dev -w @pf/web"
+  },
+  "engines": { "node": ">=20" }
+}
