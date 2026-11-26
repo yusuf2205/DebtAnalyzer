@@ -85,6 +85,7 @@ tn "без копий — отказ и запись результата" env B
 t "…результат записан как неудача" sh -c "grep -q '\"ok\":false' $R/last-restore-test.json && grep -q 'нет резервных копий' $R/last-restore-test.json"
 env BACKUP_PATH="$R" UPLOADS_PATH="$W/none" sh "$HERE/backup.sh" >/dev/null 2>&1
 t "успешная проверка пишет ok:true и сводку" sh -c "BACKUP_PATH=$R sh $HERE/restore-test.sh && grep -q '\"ok\":true' $R/last-restore-test.json && grep -q 'договоров 712' $R/last-restore-test.json"
+t "результат проверки доступен на чтение остальным (API работает не от root)" sh -c "[ -n \"\$(find $R/last-restore-test.json -perm -004)\" ]"
 RJ="$R/last-restore-test.json"; command -v cygpath >/dev/null 2>&1 && RJ=$(cygpath -m "$RJ")
 t "…файл результата — валидный JSON" node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$RJ"
 tn "ошибка pg_restore — отказ" env FAKE_RESTORE_FAIL=1 BACKUP_PATH="$R" sh "$HERE/restore-test.sh"

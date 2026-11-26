@@ -33,7 +33,9 @@ export type Config = z.infer<typeof schema> & {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = schema.safeParse(env);
+  // Docker Compose передаёт незаданные переменные пустыми строками (`${VAR:-}`): пустое значение = «не задано»
+  const cleaned = Object.fromEntries(Object.entries(env).filter(([, v]) => v !== ''));
+  const parsed = schema.safeParse(cleaned);
   if (!parsed.success) throw new Error('Некорректная конфигурация окружения: ' + parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
   const c = parsed.data;
   const t = c.NODE_ENV === 'test';

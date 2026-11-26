@@ -7,7 +7,7 @@ DIR="${BACKUP_PATH:-/backups}"
 SCRATCH="${SCRATCH_DB:-pf_restore_test}"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-report() { printf '{"at":"%s","ok":%s,"detail":"%s"}\n' "$NOW" "$1" "$2" > "$DIR/last-restore-test.json"; }
+report() { printf '{"at":"%s","ok":%s,"detail":"%s"}\n' "$NOW" "$1" "$2" > "$DIR/last-restore-test.json"; chmod 644 "$DIR/last-restore-test.json"; } # читает API (пользователь node), а backup работает от root; дампы остаются закрытыми (600/700)
 fail()   { echo "restore-test FAILED: $1" >&2; report false "$1"; dropdb --if-exists "$SCRATCH" 2>/dev/null; exit 1; }
 
 LATEST=$(ls -1t "$DIR"/pf-*.dump 2>/dev/null | head -n 1)
