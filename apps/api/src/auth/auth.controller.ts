@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { loadConfig } from '../config';
 import { parse } from '../common/zod';
 import type { AuthUser } from '../common/types';
-import { SESSION_COOKIE } from './access.guard';
 import { AuthService } from './auth.service';
+import { sessionCookieName, sessionCookieOptions } from './cookie';
 import { AllowPasswordChangePending, ClientIp, CurrentUser, Public } from './decorators';
 
 const cfg = loadConfig();
@@ -23,7 +23,7 @@ export class AuthController {
   async login(@Body() body: unknown, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const { email, password } = parse(z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) }), body);
     const r = await this.auth.login(email, password, req.ip ?? null, req.headers['user-agent'] ?? null);
-    res.cookie(SESSION_COOKIE, r.token, { httpOnly: true, secure: cfg.cookieSecure, sameSite: 'lax', path: '/', expires: r.expiresAt });
+    res.cookie(sessionCookieName(), r.token, sessionCookieOptions(r.expiresAt));
     return { user: publicUser(r.user) };
   }
 
@@ -36,7 +36,7 @@ export class AuthController {
   @HttpCode(204)
   async logout(@CurrentUser() u: AuthUser, @ClientIp() ip: string | null, @Res({ passthrough: true }) res: Response) {
     await this.auth.logout(u, ip);
-    res.clearCookie(SESSION_COOKIE, { path: '/' });
+    res.clearCookie(sessionCookieName(), sessionCookieOptions());
   }
 
   @AllowPasswordChangePending()

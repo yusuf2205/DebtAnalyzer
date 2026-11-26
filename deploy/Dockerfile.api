@@ -6,7 +6,9 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
-RUN npm ci
+COPY e2e/package.json e2e/
+# Зависимости ставятся только для нужных пакетов (без браузерных E2E-инструментов).
+RUN npm ci --include-workspace-root -w @pf/shared -w @pf/api
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 RUN npm run build -w @pf/shared && npm run build -w @pf/api
@@ -23,4 +25,5 @@ COPY --from=build /app/apps/api apps/api
 WORKDIR /app/apps/api
 USER node
 EXPOSE 4000
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# Миграции применяются прямым вызовом CLI из node_modules (без npx: файловая система контейнера может быть только для чтения).
+CMD ["sh", "-c", "node ../../node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]

@@ -87,10 +87,11 @@ export default function ContractPage() {
       </section>
 
       <section className="panel p-4 space-y-2">
-        <h2 className="font-semibold">График платежей (план)</h2>
+        <div className="flex justify-between items-center gap-2 flex-wrap"><h2 className="font-semibold">График платежей (план)</h2>{can('plans.view') && <Link className="btn" href={`/calendar?contractId=${id}`}>Планировать в календаре</Link>}</div>
+        <p className="muted text-xs">План не уменьшает долг — это только намерение платить. Фактом считаются подтверждённые платежи.</p>
         {c.plans.length ? <table className="tbl"><thead><tr><th>Период</th><th>Неделя</th><th className="num">Сумма</th><th>Источник</th></tr></thead>
           <tbody>{c.plans.map((p: any) => <tr key={p.id}><td>{MONTHS[p.month - 1]} {p.year}</td><td>W{p.week}</td><td className="num b-info">{money(p.amount, p.currency)}</td><td>{p.source === 'IMPORT' ? 'импорт' : 'вручную'}</td></tr>)}</tbody></table>
-          : <p className="muted text-sm">План не задан. Редактирование плана и календарь — этап M5.</p>}
+          : <p className="muted text-sm">План не задан.</p>}
       </section>
 
       <section className="panel p-4 space-y-2">

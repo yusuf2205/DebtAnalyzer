@@ -17,7 +17,7 @@ export default function ChangePasswordPage() {
     e.preventDefault(); setError('');
     if (next !== again) return setError('Новые пароли не совпадают');
     setBusy(true);
-    try { await api('POST', '/auth/change-password', { current, next }); await refresh(); router.replace('/imports'); }
+    try { await api('POST', '/auth/change-password', { current, next }); await refresh(); router.replace('/dashboard'); }
     catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
 

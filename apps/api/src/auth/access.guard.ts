@@ -4,9 +4,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { can, type Permission } from '@pf/shared';
 import type { AuthedRequest } from '../common/types';
 import { AuthService } from './auth.service';
+import { sessionCookieName } from './cookie';
 import { ALLOW_PASSWORD_CHANGE_PENDING, IS_PUBLIC, PERMISSION } from './decorators';
 
-export const SESSION_COOKIE = 'pf_session';
 export const CSRF_HEADER = 'x-csrf-token';
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -24,7 +24,7 @@ export class AccessGuard implements CanActivate {
     const handlers = [ctx.getHandler(), ctx.getClass()];
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, handlers)) return true;
     const req = ctx.switchToHttp().getRequest<AuthedRequest>();
-    const token = (req as any).cookies?.[SESSION_COOKIE] as string | undefined;
+    const token = (req as any).cookies?.[sessionCookieName()] as string | undefined;
     const user = token ? await this.auth.validate(token) : null;
     if (!user) throw new UnauthorizedException('Требуется вход в систему');
     if (!SAFE.has(req.method)) {

@@ -1,6 +1,6 @@
 'use client';
-import type { ReactNode } from 'react';
-import { money } from './api';
+import { useEffect, useState, type ReactNode } from 'react';
+import { api, money } from './api';
 
 export const STATE: Record<string, [string, string]> = {
   UNPAID: ['Не оплачен', 'b-err'], PARTIAL: ['Частично', 'b-mute'], PAID: ['Оплачен', 'b-ok'], OVERPAID: ['Переплата', 'b-info'],
@@ -72,3 +72,37 @@ export function Stat({ label, value, tone }: { label: string; value: ReactNode; 
 export function ExportLink({ href, children }: { href: string; children: ReactNode }) {
   return <a className="btn" href={`/api${href}`} download>{children}</a>;
 }
+
+/** Простое модальное окно (Esc и клик по фону закрывают). */
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: 'rgba(0,0,0,.45)' }}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="panel w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-auto">
+        <div className="flex justify-between items-center"><h2 className="font-semibold">{title}</h2><button className="btn" onClick={onClose} aria-label="Закрыть">✕</button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Выбор контрагента поиском (для фильтров). */
+export function SupplierPicker({ value, onChange }: { value: { id: string; name: string } | null; onChange: (v: { id: string; name: string } | null) => void }) {
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<any[]>([]);
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound([]); return; }
+    const t = setTimeout(() => api('GET', `/suppliers?q=${encodeURIComponent(q)}&pageSize=8`).then((r) => setFound(r.items)).catch(() => {}), 200);
+    return () => clearTimeout(t);
+  }, [q]);
+  if (value) return <span className="flex items-center gap-1 input">{value.name.slice(0, 30)}<button className="underline text-xs" onClick={() => onChange(null)} aria-label="Сбросить контрагента">✕</button></span>;
+  return (
+    <span className="relative">
+      <input className="input" placeholder="Контрагент…" value={q} onChange={(e) => setQ(e.target.value)} />
+      {found.length > 0 && <ul className="panel absolute z-20 mt-1 p-1 w-72 max-h-60 overflow-auto">{found.map((s) => <li key={s.id}><button className="w-full text-left px-2 py-1 hover:underline" onClick={() => { onChange({ id: s.id, name: s.name }); setQ(''); setFound([]); }}>{s.name}</button></li>)}</ul>}
+    </span>
+  );
+}
+
+/** Компактные числа для осей графиков (1,2 млн). */
+export const compact = (v: number) => new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(v);

@@ -14,8 +14,9 @@ export class FxController {
   constructor(private prisma: PrismaService, private audit: AuditService) {}
 
   @Get('rates') @RequirePermission('fx.view')
-  list(@Query('status') status?: string) {
-    return this.prisma.fxRate.findMany({ where: status ? { status: status as any } : {}, orderBy: [{ currency: 'asc' }, { effectiveDate: 'desc' }, { createdAt: 'desc' }] });
+  list(@Query('status') raw?: string) {
+    const status = raw === undefined ? undefined : parse(z.enum(['PENDING_CONFIRMATION', 'CONFIRMED', 'REJECTED']), raw);
+    return this.prisma.fxRate.findMany({ where: status ? { status } : {}, orderBy: [{ currency: 'asc' }, { effectiveDate: 'desc' }, { createdAt: 'desc' }] });
   }
 
   /** Ручная установка курса уполномоченным пользователем — сразу подтверждённая запись с автором и источником. */

@@ -15,7 +15,7 @@ export default function LoginPage() {
     try {
       const r = await api<{ user: Me }>('POST', '/auth/login', { email, password });
       setCsrf(r.user.csrfToken);
-      router.replace(r.user.mustChangePassword ? '/change-password' : '/imports');
+      router.replace(r.user.mustChangePassword ? '/change-password' : '/dashboard');
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
 

@@ -1,14 +1,35 @@
-# Procurement Finance — NAS (UGREEN DXP4800 Plus). Запуск: cp .env.example .env && docker compose up -d --build
-# Наружу публикуется только cloudflared (исходящее соединение). Порты postgres/api/web на хост НЕ пробрасываются.
+# Procurement Finance — NAS (UGREEN DXP4800 Plus).
+# Запуск: cp .env.example .env && ./deploy/preflight.sh && docker compose up -d --build
+#
+# Сеть:
+#   db  — внутренняя сеть без выхода в интернет: только postgres, api, worker, backup. БД недостижима снаружи.
+#   app — web, api, worker, cloudflared. Единственный вход извне — исходящий туннель cloudflared (HTTPS на стороне Cloudflare).
+# Порты postgres/api/web на хост НЕ пробрасываются.
 name: procurement-finance
 
 x-restart: &restart
   restart: unless-stopped # автозапуск после перезагрузки NAS
 
+# Прикладные контейнеры: без повышения привилегий и без Linux capabilities (пользователь node, порты > 1024).
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-google-env: &google-env
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+
 services:
   postgres:
     <<: *restart
     image: postgres:16-alpine
+    command: ["postgres", "-c", "log_min_duration_statement=1000", "-c", "idle_in_transaction_session_timeout=300000"]
     environment:
       POSTGRES_DB: pf
       POSTGRES_USER: pf
@@ -21,75 +42,90 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [internal]
+    logging: *logging
+    networks: [db]
 
   api:
-    <<: *restart
+    <<: [*restart, *hardening]
     build: { context: ., dockerfile: deploy/Dockerfile.api }
     depends_on: { postgres: { condition: service_healthy } }
     environment:
+      <<: *google-env
       NODE_ENV: production
       DATABASE_URL: postgresql://pf:${POSTGRES_PASSWORD}@postgres:5432/pf
       UPLOAD_DIR: /data/uploads
+      BACKUP_DIR: /backups
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       COOKIE_SECURE: "true"
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      TRUST_PROXY_HOPS: "2" # Cloudflare Tunnel -> web -> api: нужен для реального IP клиента (лимиты запросов, аудит)
     volumes:
       - uploads:/data/uploads
+      - ${BACKUP_DIR:-./backups}:/backups:ro # только чтение: страница «Система» показывает свежесть копий
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:4000/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
-    logging: &logging { driver: json-file, options: { max-size: "10m", max-file: "5" } }
-    networks: [internal]
+      start_period: 40s
+    logging: *logging
+    networks: [db, app]
 
   worker:
-    <<: *restart
+    <<: [*restart, *hardening]
     build: { context: ., dockerfile: deploy/Dockerfile.api }
     command: ["node", "dist/worker.js"]
     depends_on: { api: { condition: service_healthy } } # api применяет миграции
     environment:
+      <<: *google-env
       NODE_ENV: production
       DATABASE_URL: postgresql://pf:${POSTGRES_PASSWORD}@postgres:5432/pf
       UPLOAD_DIR: /data/uploads
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
     volumes:
       - uploads:/data/uploads
     logging: *logging
-    networks: [internal]
+    networks: [db, app]
 
   web:
-    <<: *restart
-    build: { context: ., dockerfile: deploy/Dockerfile.web }
+    <<: [*restart, *hardening]
+    # Адрес API (http://api:4000) задаётся при сборке образа (build arg API_INTERNAL_URL), а не при запуске.
+    build: { context: ., dockerfile: deploy/Dockerfile.web, args: { API_INTERNAL_URL: "http://api:4000" } }
     depends_on: { api: { condition: service_healthy } }
-    environment:
-      API_INTERNAL_URL: http://api:4000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging: *logging
-    networks: [internal]
+    networks: [app]
 
   cloudflared:
     <<: *restart
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:latest # для воспроизводимости зафиксируйте версию тега после проверки на NAS
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?задайте CLOUDFLARE_TUNNEL_TOKEN в .env}
-    depends_on: [web]
-    networks: [internal]
+    depends_on: { web: { condition: service_healthy } }
+    logging: *logging
+    networks: [app]
 
-  # Ежедневная резервная копия БД (pg_dump) с ротацией. Вручную: docker compose run --rm backup /backup.sh
+  # Резервное копирование: сразу при запуске, затем раз в сутки. Еженедельно (и после первой копии) —
+  # проверка восстановления в отдельную БД. Вручную: docker compose run --rm backup /backup.sh | /restore-test.sh
   backup:
     <<: *restart
     image: postgres:16-alpine
-    entrypoint: ["/bin/sh", "-c", "while true; do /backup.sh; sleep 86400; done"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          /backup.sh || echo "BACKUP FAILED" >&2
+          if [ ! -f /backups/last-restore-test.json ] || [ -n "$$(find /backups/last-restore-test.json -mtime +6 2>/dev/null)" ]; then
+            /restore-test.sh || true
+          fi
+          sleep 86400
+        done
     environment:
       PGHOST: postgres
       PGUSER: pf
@@ -98,12 +134,17 @@ services:
       KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
     volumes:
       - ./deploy/backup.sh:/backup.sh:ro
+      - ./deploy/restore-test.sh:/restore-test.sh:ro
+      - uploads:/uploads:ro
       - ${BACKUP_DIR:-./backups}:/backups
     depends_on: { postgres: { condition: service_healthy } }
-    networks: [internal]
+    logging: *logging
+    networks: [db]
 
 networks:
-  internal: {}
+  db:
+    internal: true
+  app: {}
 
 volumes:
   pgdata:

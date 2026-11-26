@@ -4,9 +4,14 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
-RUN npm ci
+COPY e2e/package.json e2e/
+# Зависимости ставятся только для нужных пакетов (без браузерных E2E-инструментов).
+RUN npm ci --include-workspace-root -w @pf/shared -w @pf/web
 COPY packages/shared packages/shared
 COPY apps/web apps/web
+# Адрес API «зашивается» в сборку (rewrites Next вычисляются при build). В Compose сервис называется api.
+ARG API_INTERNAL_URL=http://api:4000
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
 RUN npm run build -w @pf/shared && npm run build -w @pf/web
 
 FROM node:22-bookworm-slim

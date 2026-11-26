@@ -20,6 +20,10 @@ const schema = z.object({
   GOOGLE_API_BASE: z.string().optional(),
   GOOGLE_TOKEN_URL: z.string().optional(),
   GOOGLE_AUTH_URL: z.string().optional(),
+  /** Сколько прокси стоит перед API (Cloudflare Tunnel -> web -> api = 2). От этого зависят req.ip, лимиты запросов и IP в аудите. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  /** Каталог резервных копий, смонтированный в API только для чтения (страница «Система»). */
+  BACKUP_DIR: z.string().optional(),
   LOGIN_RATE_LIMIT: z.coerce.number().default(10),
 });
 

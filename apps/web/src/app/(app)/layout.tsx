@@ -7,14 +7,18 @@ import { useSession } from '@/lib/session';
 
 // Только реально работающие разделы. Модули следующих этапов (Dashboard, Договоры, Платежи …) появятся в меню вместе с реализацией.
 const NAV: { href: string; label: string; perm: Permission }[] = [
+  { href: '/dashboard', label: 'Dashboard', perm: 'dashboard.view' },
   { href: '/suppliers', label: 'Контрагенты', perm: 'suppliers.view' },
   { href: '/contracts', label: 'Договоры', perm: 'contracts.view' },
   { href: '/payments', label: 'Платежи', perm: 'payments.view' },
+  { href: '/calendar', label: 'Календарь платежей', perm: 'plans.view' },
   { href: '/reconciliation', label: 'Сверка', perm: 'reconciliation.view' },
+  { href: '/reports', label: 'Отчёты', perm: 'reports.view' },
   { href: '/imports', label: 'Импорт', perm: 'import.view' },
   { href: '/google', label: 'Google Sheets', perm: 'import.view' },
   { href: '/fx', label: 'Курсы валют', perm: 'fx.view' },
   { href: '/users', label: 'Пользователи', perm: 'users.view' },
+  { href: '/system', label: 'Система', perm: 'settings.manage' },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

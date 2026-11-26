@@ -236,7 +236,10 @@ export class ImportsService {
       }
       // План: перезаписываем только записи, пришедшие из импорта; ручные не трогаем. На задолженность план не влияет.
       await tx.planEntry.deleteMany({ where: { contractId, source: 'IMPORT', year } });
-      if (planRows.length) { await tx.planEntry.createMany({ data: planRows.map((p) => ({ ...p, contractId })) }); rep.planEntriesWritten += planRows.length; }
+      // Ручные правки плана (в т.ч. отредактированные импортированные записи) важнее таблицы: их ячейки не перезаписываем.
+      const taken = new Set((await tx.planEntry.findMany({ where: { contractId, year }, select: { month: true, week: true } })).map((m) => `${m.month}-${m.week}`));
+      const fresh = planRows.filter((p) => !taken.has(`${p.month}-${p.week}`));
+      if (fresh.length) { await tx.planEntry.createMany({ data: fresh.map((p) => ({ ...p, contractId })) }); rep.planEntriesWritten += fresh.length; }
     }
 
     // Курсы: только кандидаты на подтверждение. Ни один не становится «действующим» без решения пользователя.

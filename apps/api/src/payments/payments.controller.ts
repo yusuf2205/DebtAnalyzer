@@ -149,7 +149,13 @@ export class PaymentsController {
     const contract = await this.prisma.contract.findUnique({ where: { id: d.contractId } });
     if (!contract) throw new BadRequestException('Договор не найден');
     if (contract.status !== 'ACTIVE') throw new BadRequestException('Договор в архиве — платежи по нему регистрировать нельзя');
-    await this.conflicts(this.prisma, contract, d, [], d.confirmDuplicate);
+    try { await this.conflicts(this.prisma, contract, d, [], d.confirmDuplicate); }
+    catch (e) {
+      // Гонка двойного нажатия: параллельный запрос с тем же ключом уже создал платёж — возвращаем его, а не «дубликат».
+      const again = await this.prisma.payment.findUnique({ where: { idempotencyKey: d.idempotencyKey }, include });
+      if (again && again.createdById === u.id) return { ...(await this.enrich([again]))[0], idempotentReplay: true };
+      throw e;
+    }
     let created: Payment;
     try {
       created = await this.prisma.payment.create({

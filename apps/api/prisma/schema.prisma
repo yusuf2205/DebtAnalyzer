@@ -177,7 +177,9 @@ model PlanEntry {
   source     PlanSource   @default(IMPORT)
   note       String?
   createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @default(now()) @updatedAt
 
+  @@unique([contractId, year, month, week])
   @@index([contractId])
   @@index([year, month, week])
 }
@@ -364,4 +366,32 @@ model Payment {
   @@index([contractId])
   @@index([status])
   @@index([paymentDate])
+}
+
+/// Настройки приложения (например, границы недель календаря). Изменения пишутся в журнал аудита.
+model AppSetting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
+
+/// Ежедневный снимок портфеля по валютам (для графика динамики задолженности). Неизменяем: эквивалент в USD
+/// фиксируется по курсам на дату снимка и не пересчитывается при появлении новых курсов.
+model DebtSnapshot {
+  id        String       @id @default(uuid())
+  date      DateTime     @db.Date
+  currency  CurrencyCode
+  contracts Int
+  amount    Decimal      @db.Decimal(24, 2)
+  paid      Decimal      @db.Decimal(24, 2)
+  debt      Decimal      @db.Decimal(24, 2)
+  overpaid  Decimal      @db.Decimal(24, 2)
+  planned   Decimal      @db.Decimal(24, 2)
+  debtUsd   Decimal?     @db.Decimal(24, 2)
+  rateUsed  Decimal?     @db.Decimal(24, 8)
+  createdAt DateTime     @default(now())
+
+  @@unique([date, currency])
+  @@index([date])
 }

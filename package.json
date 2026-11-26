@@ -2,12 +2,20 @@
   "name": "procurement-finance",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "e2e"
+  ],
   "scripts": {
     "build:shared": "npm run build -w @pf/shared",
     "test": "npm run test -w @pf/shared && npm run test -w @pf/api",
     "dev:api": "npm run start:dev -w @pf/api",
-    "dev:web": "npm run dev -w @pf/web"
+    "dev:web": "npm run dev -w @pf/web",
+    "test:e2e": "npm run test -w @pf/e2e",
+    "test:deploy": "sh deploy/tests/run.sh"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }
