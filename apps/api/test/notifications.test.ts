@@ -72,10 +72,16 @@ describe('уведомления: настройки и права', () => {
 
   it('предпросмотр: тот же состав, что в сообщении; ничего не отправляется', async () => {
     tgCalls.length = 0; testOutbox.length = 0;
+    // просроченный договор с номером из нескольких строк (так бывает в загруженной таблице)
+    const sup = (await post(admin, '/api/suppliers').send({ name: `NL-${uniq()}` })).body.id;
+    const nl = (await post(admin, '/api/contracts').send({ supplierId: sup, number: 'Спец №7\n Договор №9\n от 11.02.2026', amount: '1000', currency: 'USD', openingPaid: '0' })).body.id;
+    const d0 = new Date(); await prisma.planEntry.create({ data: { contractId: nl, year: d0.getFullYear() - 1, month: 1, week: 1, amount: '500', currency: 'USD', source: 'MANUAL' } });
     const r = (await get(admin, '/api/notifications/preview')).body;
     expect(r.text).toMatch(/Procurement Finance — сводка на/);
     expect(r.text).toMatch(/Просрочено|Просроченных обязательств нет/);
     expect(r.text).toMatch(/Цветок:/);
+    // каждая строка сводки — заголовок раздела, пункт списка или ссылка: переносы внутри номера договора не ломают список
+    for (const ln of r.text.split('\n').filter(Boolean)) expect(ln).toMatch(/^(   • |   … |Procurement Finance|⚠|✓|📅|🕑|💱|🌱|🛠|https?:)/);
     expect(r.digest).toMatchObject({ overdue: expect.any(Object), upcoming: { horizonDays: 3 }, pending: expect.any(Object), plant: expect.any(Object) });
     expect(tgCalls.length + testOutbox.length).toBe(0);
   });

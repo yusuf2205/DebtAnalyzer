@@ -37,7 +37,8 @@ export class DigestService {
       this.prisma.payment.findFirst({ where: { status: 'PENDING' }, orderBy: { submittedAt: 'asc' }, select: { submittedAt: true, createdAt: true } }),
       this.prisma.fxRate.count({ where: { status: 'PENDING_CONFIRMATION' } }),
     ]);
-    const line = (x: any): Line => ({ number: x.number ?? null, supplier: x.supplier?.name ?? '', amount: x.amount, currency: x.currency, period: x.from ? `${x.from.slice(5)}…${x.to.slice(5)}` : undefined });
+    const oneLine = (t: string | null | undefined, max: number) => { const v = (t ?? '').replace(/\s+/g, ' ').trim(); return v.length > max ? `${v.slice(0, max - 1)}…` : v; };
+    const line = (x: any): Line => ({ number: x.number ? oneLine(x.number, 70) : null, supplier: oneLine(x.supplier?.name, 50), amount: x.amount, currency: x.currency, period: x.from ? `${x.from.slice(5)}…${x.to.slice(5)}` : undefined });
     const since = oldest ? (oldest.submittedAt ?? oldest.createdAt) : null;
     return {
       date: dash.asOf,
