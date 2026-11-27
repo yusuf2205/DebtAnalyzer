@@ -32,26 +32,51 @@ export function PerCurrency({ items, field, tone }: { items: any[]; field: strin
   return <div className="space-y-0.5">{items.map((c) => <div key={c.currency} className={`num ${Number(c[field]) ? tone ?? '' : 'muted'}`}>{money(c[field])} <span className="muted text-xs">{c.currency}</span></div>)}</div>;
 }
 
+/** «Итого по валюте» можно скрыть; выбор запоминается в браузере и общий для списков. */
 export function TotalsStrip({ totals }: { totals: any[] }) {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => { try { setHidden(localStorage.getItem('pf-totals-hidden') === '1'); } catch {} }, []);
+  const toggle = () => { const n = !hidden; setHidden(n); try { localStorage.setItem('pf-totals-hidden', n ? '1' : '0'); } catch {} };
   if (!totals?.length) return null;
   return (
-    <div className="panel overflow-x-auto">
-      <table className="tbl"><thead><tr><th>Итого по валюте</th><th className="num">Договоров</th><th className="num">Сумма</th><th className="num">Оплачено</th><th className="num">Долг</th><th className="num">Переплата</th><th className="num">План</th></tr></thead>
-        <tbody>{totals.map((t) => (
-          <tr key={t.currency}><td><b>{t.currency}</b></td><td className="num">{t.contracts}</td><td className="num">{money(t.amount)}</td><td className="num b-ok">{money(t.paid)}</td>
-            <td className="num b-err">{money(t.debt)}</td><td className="num b-info">{Number(t.overpaid) ? money(t.overpaid) : '—'}</td><td className="num b-info">{money(t.planned)}</td></tr>))}</tbody></table>
+    <div className="space-y-2">
+      <button type="button" className="chip" aria-expanded={!hidden} onClick={toggle}>{hidden ? '▸ Показать итоги по валюте' : '▾ Скрыть итоги по валюте'}</button>
+      {!hidden && (
+        <div className="panel overflow-x-auto">
+          <table className="tbl"><thead><tr><th>Итого по валюте</th><th className="num">Договоров</th><th className="num">Сумма</th><th className="num">Оплачено</th><th className="num">Долг</th><th className="num">Переплата</th><th className="num">План</th></tr></thead>
+            <tbody>{totals.map((t) => (
+              <tr key={t.currency}><td><b>{t.currency}</b></td><td className="num">{t.contracts}</td><td className="num">{money(t.amount)}</td><td className="num b-ok">{money(t.paid)}</td>
+                <td className="num b-err">{money(t.debt)}</td><td className="num b-info">{Number(t.overpaid) ? money(t.overpaid) : '—'}</td><td className="num b-info">{money(t.planned)}</td></tr>))}</tbody></table>
+        </div>)}
     </div>
   );
 }
 
-export function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (p: number) => void }) {
-  if (total <= pageSize) return null;
-  const pages = Math.ceil(total / pageSize);
+export const PAGE_SIZES = [50, 100, 150, 200, 300, 400, 500] as const;
+/** Размер страницы списка: выбор запоминается в браузере отдельно для каждого списка. */
+export function usePageSize(key: string): [number, (n: number) => void] {
+  const [n, setN] = useState(50);
+  useEffect(() => { try { const v = Number(localStorage.getItem(`pf-pagesize-${key}`)); if ((PAGE_SIZES as readonly number[]).includes(v)) setN(v); } catch {} }, [key]);
+  const set = (v: number) => { setN(v); try { localStorage.setItem(`pf-pagesize-${key}`, String(v)); } catch {} };
+  return [n, set];
+}
+
+/** Панель страниц в стиле почты: «Строк: 50 ▾   1–50 из 309   ‹ ›». */
+export function PagerBar({ page, pageSize, total, noun, onPage, onPageSize }: { page: number; pageSize: number; total: number; noun: string; onPage: (p: number) => void; onPageSize: (n: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
   return (
-    <div className="flex gap-2 items-center">
-      <button className="btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>←</button>
-      <span className="muted">{page} / {pages}</span>
-      <button className="btn" disabled={page >= pages} onClick={() => onPage(page + 1)}>→</button>
+    <div className="flex items-center justify-end gap-3 flex-wrap text-sm">
+      <label className="flex items-center gap-1.5 muted">Строк на странице
+        <select className="input" style={{ padding: '3px 26px 3px 8px' }} value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} aria-label={`Сколько ${noun} показывать на странице`}>
+          {PAGE_SIZES.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select></label>
+      <span className="tabular-nums" aria-live="polite">{from}–{to} из {total} <span className="muted">{noun}</span></span>
+      <span className="flex gap-1">
+        <button type="button" className="btn" style={{ padding: '3px 12px' }} disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Предыдущая страница">‹</button>
+        <button type="button" className="btn" style={{ padding: '3px 12px' }} disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Следующая страница">›</button>
+      </span>
     </div>
   );
 }

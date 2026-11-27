@@ -1,22 +1,24 @@
 'use client';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, money } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { CURRENCIES, ExportLink, Pager, qs, StateBadge, Th, TotalsStrip } from '@/lib/ui';
+import { CURRENCIES, ExportLink, PagerBar, qs, usePageSize, StateBadge, Th, TotalsStrip } from '@/lib/ui';
 
 export default function Page() { return <Suspense fallback={<p className="muted">Загрузка…</p>}><Contracts /></Suspense>; }
 
 function Contracts() {
   const { can } = useSession();
   const sp = useSearchParams();
+  const router = useRouter();
   const p = (k: string, d = '') => sp.get(k) ?? d; // фильтры можно задавать ссылкой, например /contracts?state=OPEN&currency=USD
   const [f, setF] = useState({ q: p('q'), supplierId: p('supplierId'), project: p('project'), executor: p('executor'), currency: p('currency'), status: p('status', 'ACTIVE'), state: p('state'), sort: p('sort', 'created'), dir: p('dir', 'desc'), page: 1 });
   const [data, setData] = useState<any>(null);
   const [executors, setExecutors] = useState<string[]>([]);
   const [error, setError] = useState('');
-  const query = qs({ ...f, pageSize: 50 });
+  const [pageSize, setPageSize] = usePageSize('contracts');
+  const query = qs({ ...f, pageSize });
 
   useEffect(() => { api('GET', '/contracts/facets').then((r) => setExecutors(r.executors)).catch(() => {}); }, []);
   useEffect(() => {
@@ -47,19 +49,21 @@ function Contracts() {
         {f.supplierId && <button className="btn" onClick={() => set({ supplierId: '' })}>Сбросить фильтр по контрагенту ✕</button>}
       </div>
       <TotalsStrip totals={data?.totals ?? []} />
+      {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="договоров" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
       <div className="panel overflow-auto" style={{ maxHeight: '62vh' }}>
         <table className="tbl"><thead><tr>
           <Th label="Договор" field="number" sort={f.sort} dir={f.dir} onSort={onSort} /><Th label="Контрагент" field="supplier" sort={f.sort} dir={f.dir} onSort={onSort} /><Th label="Проект" field="project" sort={f.sort} dir={f.dir} onSort={onSort} />
           <th>Вал.</th><Th label="Сумма" field="amount" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><th className="num">Оплачено</th><Th label="Долг" field="debt" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><th>Состояние</th><th>Исполнитель</th></tr></thead>
           <tbody>{data?.items.map((c: any) => (
-            <tr key={c.id} style={c.status === 'ARCHIVED' ? { opacity: .55 } : undefined}>
+            <tr key={c.id} className="row-link" style={c.status === 'ARCHIVED' ? { opacity: .55 } : undefined}
+              onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) router.push(`/contracts/${c.id}`); }}>
               <td className="max-w-72"><Link className="underline" href={`/contracts/${c.id}`}>{c.number ?? '—'}</Link>{c.status === 'ARCHIVED' && <span className="badge b-mute ml-2">архив</span>}</td>
               <td className="max-w-56"><Link href={`/suppliers/${c.supplier.id}`}>{c.supplier.name}</Link></td><td className="max-w-40 truncate" title={c.project ?? ''}>{c.project}</td>
               <td>{c.currency}</td><td className="num">{money(c.amount)}</td><td className="num b-ok">{money(c.openingPaid)}</td><td className="num b-err">{Number(c.debt) ? money(c.debt) : '—'}</td>
               <td><StateBadge state={c.state} /></td><td>{c.executor}</td></tr>))}
             {data?.items.length === 0 && <tr><td colSpan={9} className="muted">Ничего не найдено</td></tr>}</tbody></table>
       </div>
-      <div className="flex items-center gap-4"><span className="muted">{data ? `${data.total} договоров` : ''}</span>{data && <Pager page={f.page} pageSize={data.pageSize} total={data.total} onPage={(p) => setF({ ...f, page: p })} />}</div>
+      {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="договоров" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
     </div>
   );
 }

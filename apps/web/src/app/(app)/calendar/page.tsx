@@ -124,6 +124,8 @@ function CalendarView({ year, month, data, days, selected, onSelect, manage, onC
             <div key={t.currency} className="panel px-4 py-2 text-sm"><b>{t.currency}</b> · <span className="b-info">план {money(t.total.planned)}</span> · <span className="b-ok">факт {money(t.total.actual)}</span>
               {num(t.total.remaining) > 0 && <> · <span className="b-warn">остаток {money(t.total.remaining)}</span></>}</div>))}
         </div>)}
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_440px] gap-4 items-start">
+      <div className="space-y-3">
       <div className="panel overflow-hidden">
         <div className="cal-head">{WEEKDAYS.map((w) => <div key={w}>{w}</div>)}</div>
         <div className="cal-grid">
@@ -152,7 +154,8 @@ function CalendarView({ year, month, data, days, selected, onSelect, manage, onC
         <span><i className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: 'var(--plan)' }} />план — задан по неделям, показан на первом дне недели (W1–W4)</span>
         <span><i className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: 'var(--debt)' }} />просрочено — невыполненный план прошедших недель</span></p>
 
-      <section className="panel p-4 space-y-3" aria-live="polite">
+      </div>
+      <section className="panel p-4 space-y-3 xl:sticky xl:top-4" aria-live="polite">
         {!sel || !selDay ? <p className="muted">Выберите день в календаре, чтобы увидеть платежи и план недели.</p> : (<>
           <div className="flex items-center justify-between gap-2 flex-wrap"><h2 className="font-semibold">{RU_DATE(sel)}{selWeek ? <span className="muted font-normal"> · неделя W{selWeek.week} ({selWeek.from}–{selWeek.to})</span> : null}</h2>
             {manage && selWeek && <button className="btn" onClick={() => onAdd(selWeek.week)}>Добавить план на W{selWeek.week}</button>}</div>
@@ -169,6 +172,7 @@ function CalendarView({ year, month, data, days, selected, onSelect, manage, onC
                   {manage && <td><button className="btn" onClick={() => onCell(r, c)}>{c.planId ? 'Изменить' : 'Запланировать'}</button></td>}</tr>)}</tbody></table></div>)}</div>
         </>)}
       </section>
+      </div>
     </div>
   );
 }
@@ -177,7 +181,7 @@ function MonthView({ data, manage, onCell }: { data: any; manage: boolean; onCel
   return (
     <div className="space-y-3">
       {data.totals.length > 0 && (
-        <div className="panel overflow-x-auto"><table className="tbl"><thead><tr><th>Итого по валюте</th>
+        <div className="panel overflow-x-auto"><table className="tbl tbl-keep"><thead><tr><th>Итого по валюте</th>
           {data.weeks.map((w: any) => <th key={w.week} className="num">W{w.week} <span className="font-normal">({w.from}–{w.to}){w.past ? ' · прошла' : ''}</span></th>)}<th className="num">Месяц</th></tr></thead>
           <tbody>{data.totals.map((t: any) => (
             <tr key={t.currency}><td><b>{t.currency}</b><div className="text-xs muted">план / факт / остаток плана / сверх плана</div></td>
@@ -188,7 +192,7 @@ function MonthView({ data, manage, onCell }: { data: any; manage: boolean; onCel
                   <div className={num(w.over) ? 'b-info' : 'muted'}>{money(w.over)}</div></td>))}</tr>))}</tbody></table></div>)}
       <p className="muted text-xs">Остаток плана — невыполненная часть по каждому договору и неделе. Просрочено — невыполненный план прошедших недель, но не больше текущего долга по договору (красным). {data.note}</p>
       <div className="panel overflow-auto" style={{ maxHeight: '60vh' }}>
-        <table className="tbl"><thead><tr><th>Контрагент / договор</th><th>Вал.</th><th className="num">Долг</th>
+        <table className="tbl tbl-keep"><thead><tr><th>Контрагент / договор</th><th>Вал.</th><th className="num">Долг</th>
           {data.weeks.map((w: any) => <th key={w.week} className="num">W{w.week} <span className="font-normal">{w.from}–{w.to}</span></th>)}<th className="num">План / факт</th></tr></thead>
           <tbody>{data.rows.map((r: any) => (
             <tr key={r.contract.id}>
@@ -199,7 +203,7 @@ function MonthView({ data, manage, onCell }: { data: any; manage: boolean; onCel
                 <td key={c.week} className="num align-top" style={{ minWidth: 110 }}>
                   <button className="w-full text-right" style={{ cursor: manage || c.planId ? 'pointer' : 'default' }} disabled={!manage && !c.planId} onClick={() => onCell(r, c)}
                     aria-label={`W${c.week}: ${c.planned ? (manage ? 'изменить план' : 'план задан') : (manage ? 'добавить план' : 'плана нет')}`}>
-                    {c.planned ? <div className="b-info">{money(c.planned)}{c.source === 'IMPORT' && <span className="muted text-xs" title="из импортированной таблицы"> ⇩</span>}</div> : <div className="muted">{manage ? '＋' : '—'}</div>}
+                    {c.planned ? <div className="b-info">{money(c.planned)}{c.source === 'IMPORT' && <span className="muted text-xs" title="из таблицы реестра"> ⇩</span>}</div> : <div className="muted">{manage ? '＋' : '—'}</div>}
                     {num(c.actual) !== 0 && <div className="b-ok text-xs">факт {money(c.actual)}</div>}
                     {num(c.overdue) > 0 ? <div className="b-err text-xs">просрочено {money(c.overdue)}</div> : num(c.remaining) > 0 ? <div className="b-warn text-xs">остаток {money(c.remaining)}</div> : null}
                     {num(c.over) > 0 && <div className="text-xs b-info">сверх {money(c.over)}</div>}
@@ -244,7 +248,7 @@ function CellModal({ row, cell, year, month, manage, onClose, onDone }: any) {
 
   return (
     <Modal title={`${row.contract.number ?? 'Договор'} — ${MONTHS[month - 1]} ${year}, W${cell.week}`} onClose={onClose}>
-      <p className="text-sm muted">{row.supplier.name} · {row.currency}{cell.planned ? ` · источник плана: ${cell.source === 'IMPORT' ? 'импорт' : 'вручную'}` : ''}</p>
+      <p className="text-sm muted">{row.supplier.name} · {row.currency}{cell.planned ? ` · источник плана: ${cell.source === 'IMPORT' ? 'таблица' : 'вручную'}` : ''}</p>
       {num(cell.actual) !== 0 && <p className="text-sm b-ok">Факт за неделю: {money(cell.actual, row.currency)}</p>}
       {error && <p role="alert" className="b-err text-sm">{error}</p>}
       {!cell.planId ? (

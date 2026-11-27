@@ -45,7 +45,7 @@ export default function SupplierPage() {
         <h2 className="font-semibold">Написания названия ({s.aliases.length})</h2>
         <p className="muted text-xs">При импорте строка с любым из этих написаний попадёт к этому контрагенту.</p>
         <ul className="space-y-1">{s.aliases.map((a: any) => (
-          <li key={a.id} className="flex gap-2 items-center"><span>{a.alias}</span><span className="muted text-xs">{a.source.split(':')[0]}</span>
+          <li key={a.id} className="flex gap-2 items-center"><span>{a.alias}</span><span className="muted text-xs">{({ IMPORT: 'из таблицы', MANUAL: 'вручную', MERGE: 'при объединении' } as Record<string, string>)[a.source.split(':')[0]] ?? a.source.split(':')[0]}</span>
             {manage && s.aliases.length > 1 && <button className="btn" onClick={() => act(() => api('DELETE', `/suppliers/${id}/aliases/${a.id}`))}>Удалить</button>}</li>))}</ul>
         {manage && <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); act(async () => { await api('POST', `/suppliers/${id}/aliases`, { alias }); setAlias(''); }); }}>
           <input className="input w-96" placeholder="Добавить написание вручную" value={alias} onChange={(e) => setAlias(e.target.value)} /><button className="btn" disabled={alias.trim().length < 2}>Добавить</button></form>}

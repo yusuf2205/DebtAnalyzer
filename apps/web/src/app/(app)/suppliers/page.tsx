@@ -1,12 +1,14 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { CURRENCIES, ExportLink, Pager, PerCurrency, qs, Th, TotalsStrip } from '@/lib/ui';
+import { CURRENCIES, ExportLink, PagerBar, PerCurrency, qs, usePageSize, Th, TotalsStrip } from '@/lib/ui';
 
 export default function SuppliersPage() {
   const { can } = useSession();
+  const router = useRouter();
   const [tab, setTab] = useState<'list' | 'dups'>('list');
   const [f, setF] = useState({ q: '', status: 'ACTIVE', currency: '', executor: '', hasDebt: '', sort: 'name', dir: 'asc', page: 1 });
   const [data, setData] = useState<any>(null);
@@ -14,7 +16,8 @@ export default function SuppliersPage() {
   const [error, setError] = useState('');
   const [newName, setNewName] = useState('');
 
-  const query = qs({ ...f, pageSize: 50 });
+  const [pageSize, setPageSize] = usePageSize('suppliers');
+  const query = qs({ ...f, pageSize });
   const load = useCallback(() => {
     const t = setTimeout(() => api('GET', `/suppliers?${query}`).then(setData).catch((e) => setError(e.message)), 200);
     return () => clearTimeout(t);
@@ -55,13 +58,14 @@ export default function SuppliersPage() {
         </div>
         {f.sort !== 'name' && f.sort !== 'contracts' && <p className="muted text-xs">Сортировка по суммам идёт по выбранной валюте ({f.currency || 'USD'}).</p>}
         <TotalsStrip totals={data?.totals ?? []} />
+        {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="контрагентов" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
         <div className="panel overflow-auto" style={{ maxHeight: '62vh' }}>
           <table className="tbl"><thead><tr>
             <Th label="Контрагент" field="name" sort={f.sort} dir={f.dir} onSort={onSort} /><Th label="Договоров" field="contracts" sort={f.sort} dir={f.dir} onSort={onSort} className="num" />
             <Th label="Сумма" field="amount" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><Th label="Оплачено" field="paid" sort={f.sort} dir={f.dir} onSort={onSort} className="num" />
             <Th label="Долг" field="debt" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><Th label="План" field="planned" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><th>Исполнители</th></tr></thead>
             <tbody>{data?.items.map((s: any) => (
-              <tr key={s.id}>
+              <tr key={s.id} className="row-link" onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) router.push(`/suppliers/${s.id}`); }}>
                 <td className="max-w-80"><Link className="underline" href={`/suppliers/${s.id}`}>{s.name}</Link>{s.status === 'ARCHIVED' && <span className="badge b-mute ml-2">объединён</span>}{s.aliasCount > 1 && <span className="muted text-xs ml-2">{s.aliasCount} написаний</span>}</td>
                 <td className="num">{s.contracts}</td>
                 <td><PerCurrency items={s.byCurrency} field="amount" /></td><td><PerCurrency items={s.byCurrency} field="paid" tone="b-ok" /></td>
@@ -69,7 +73,7 @@ export default function SuppliersPage() {
                 <td className="text-xs max-w-48">{s.executors.join(', ')}</td></tr>))}
               {data?.items.length === 0 && <tr><td colSpan={7} className="muted">Ничего не найдено</td></tr>}</tbody></table>
         </div>
-        <div className="flex items-center gap-4"><span className="muted">{data ? `${data.total} контрагентов` : ''}</span>{data && <Pager page={f.page} pageSize={data.pageSize} total={data.total} onPage={(p) => setF({ ...f, page: p })} />}</div>
+        {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="контрагентов" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
         {can('suppliers.manage') && (
           <div className="panel p-3 flex gap-2 flex-wrap items-center"><span className="muted">Новый контрагент:</span>
             <input className="input w-80" placeholder="Название" value={newName} onChange={(e) => setNewName(e.target.value)} /><button className="btn" disabled={newName.trim().length < 2} onClick={create}>Создать</button></div>)}

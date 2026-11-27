@@ -82,7 +82,7 @@ export default function ContractPage() {
         <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
           <div><dt className="muted inline">Товар: </dt><dd className="inline">{c.goods ?? '—'}</dd></div><div><dt className="muted inline">Исполнитель: </dt><dd className="inline">{c.executor ?? '—'}</dd></div>
           <div className="sm:col-span-2"><dt className="muted inline">Примечание: </dt><dd className="inline whitespace-pre-line">{c.notes ?? '—'}</dd></div>
-          <div className="sm:col-span-2 muted text-xs">{c.sourceBatchId ? `Источник: импорт, строка ${c.sourceRow}; «Оплачено» в источнике: ${money(c.sourcePaid)}` : 'Создан вручную'}</div>
+          <div className="sm:col-span-2 muted text-xs">{c.sourceBatchId ? `Источник: таблица реестра (загружена в систему), строка ${c.sourceRow}; «Оплачено» в таблице: ${money(c.sourcePaid)}` : 'Создан вручную'}</div>
         </dl>
       </section>
 
@@ -90,7 +90,7 @@ export default function ContractPage() {
         <div className="flex justify-between items-center gap-2 flex-wrap"><h2 className="font-semibold">График платежей (план)</h2>{can('plans.view') && <Link className="btn" href={`/calendar?contractId=${id}`}>Планировать в календаре</Link>}</div>
         <p className="muted text-xs">План не уменьшает долг — это только намерение платить. Фактом считаются подтверждённые платежи.</p>
         {c.plans.length ? <table className="tbl"><thead><tr><th>Период</th><th>Неделя</th><th className="num">Сумма</th><th>Источник</th></tr></thead>
-          <tbody>{c.plans.map((p: any) => <tr key={p.id}><td>{MONTHS[p.month - 1]} {p.year}</td><td>W{p.week}</td><td className="num b-info">{money(p.amount, p.currency)}</td><td>{p.source === 'IMPORT' ? 'импорт' : 'вручную'}</td></tr>)}</tbody></table>
+          <tbody>{c.plans.map((p: any) => <tr key={p.id}><td>{MONTHS[p.month - 1]} {p.year}</td><td>W{p.week}</td><td className="num b-info">{money(p.amount, p.currency)}</td><td>{p.source === 'IMPORT' ? 'из таблицы' : 'вручную'}</td></tr>)}</tbody></table>
           : <p className="muted text-sm">План не задан.</p>}
       </section>
 

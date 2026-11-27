@@ -55,7 +55,7 @@ export default function FxPage() {
 
       <div className="panel overflow-x-auto"><table className="tbl"><thead><tr><th>Валюта</th><th className="num">UZS за 1 ед.</th><th>Дата действия</th><th>Источник</th><th>Статус</th><th></th></tr></thead>
         <tbody>{rates?.map((r) => { const st = ST[r.status]; return (
-          <tr key={r.id}><td><b>{r.currency}</b></td><td className="num">{money(r.uzsPerUnit)}</td><td>{r.effectiveDate?.slice(0, 10) ?? '—'}</td><td className="max-w-72 truncate" title={r.source}>{r.source}</td>
+          <tr key={r.id}><td><b>{r.currency}</b></td><td className="num">{money(r.uzsPerUnit)}</td><td>{r.effectiveDate?.slice(0, 10) ?? '—'}</td><td className="max-w-72 truncate" title={r.source}>{r.source.startsWith('IMPORT:') ? 'Из загруженной таблицы' : r.source}</td>
             <td><span className={`badge ${st[1]}`}>{st[0]}</span></td>
             <td className="whitespace-nowrap">{manage && (<>
               {r.status === 'PENDING_CONFIRMATION' && (<>

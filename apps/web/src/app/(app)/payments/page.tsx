@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, money } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { CURRENCIES, ExportLink, PAY_KIND, PAY_STATUS, PayBadge, Pager, qs } from '@/lib/ui';
+import { CURRENCIES, ExportLink, PAY_KIND, PAY_STATUS, PayBadge, PagerBar, qs, usePageSize } from '@/lib/ui';
 
 export default function Page() { return <Suspense fallback={<p className="muted">Загрузка…</p>}><Payments /></Suspense>; }
 
@@ -14,7 +14,8 @@ function Payments() {
   const [f, setF] = useState({ status: sp.get('status') ?? '', kind: '', currency: '', q: '', from: '', to: '', contractId: sp.get('contractId') ?? '', supplierId: sp.get('supplierId') ?? '', page: 1 });
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
-  const query = qs({ ...f, pageSize: 50 });
+  const [pageSize, setPageSize] = usePageSize('payments');
+  const query = qs({ ...f, pageSize });
   useEffect(() => {
     const t = setTimeout(() => api('GET', `/payments?${query}`).then(setData).catch((e) => setError(e.message)), 200);
     return () => clearTimeout(t);
@@ -59,7 +60,7 @@ function Payments() {
               <td className="text-xs">{[p.bankDocument, p.transactionNo].filter(Boolean).join(' / ')}</td><td className="text-xs">{p.createdBy.name}</td></tr>))}
             {data?.items.length === 0 && <tr><td colSpan={9} className="muted">Платежей нет</td></tr>}</tbody></table>
       </div>
-      <div className="flex items-center gap-4"><span className="muted">{data ? `${data.total} платежей` : ''}</span>{data && <Pager page={f.page} pageSize={data.pageSize} total={data.total} onPage={(p) => setF({ ...f, page: p })} />}</div>
+      {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="платежей" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
     </div>
   );
 }

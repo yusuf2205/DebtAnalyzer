@@ -128,24 +128,32 @@ summary { cursor: pointer; }
 summary.chip, .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); font-weight: 550; list-style: none; }
 summary.chip::-webkit-details-marker { display: none; }
 summary.chip:hover, .chip:hover { background: var(--panel-2); }
+.chip { cursor: pointer; white-space: nowrap; font-size: 13px; }
+.chip-on, .chip-on:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+/* ───────── Выдвижное меню (телефон) ───────── */
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.drawer { animation: drawer-in .22s ease-out both; }
+.drawer-backdrop { background: rgba(20, 24, 18, .45); animation: fade-in .2s ease-out both; }
 
 /* ───────── Календарь ───────── */
 @keyframes plant-grow { from { transform: scale(.82); opacity: .4; } to { transform: scale(1); opacity: 1; } }
 .cal-head, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-.cal-head > div { padding: 8px 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.cal-head > div { padding: 6px 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .cal-grid { gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
 .cal-cell {
-  position: relative; display: flex; flex-direction: column; gap: 3px; align-items: stretch; text-align: left; min-height: 104px; padding: 6px 7px;
+  position: relative; display: flex; flex-direction: column; gap: 3px; align-items: stretch; text-align: left; min-height: 72px; padding: 4px 6px;
   background: var(--panel); color: var(--text); border: 0; cursor: pointer; font: inherit; transition: background .12s;
 }
 .cal-cell:hover { background: var(--panel-2); }
 .cal-cell.out { background: var(--panel-2); color: var(--muted); }
 .cal-cell.out .cal-chip { opacity: .7; }
 .cal-cell[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--accent); }
-.cal-day { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 999px; font-weight: 600; font-size: 12.5px; }
+.cal-day { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 999px; font-weight: 600; font-size: 12px; }
 .cal-cell.today .cal-day { background: var(--accent); color: var(--on-accent); }
 .cal-wk { position: absolute; top: 7px; right: 8px; font-size: 10.5px; color: var(--muted); }
-.cal-chip { display: block; padding: 1px 7px; border-radius: 8px; font-size: 11.5px; line-height: 1.5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.cal-chip { display: block; padding: 0 6px; border-radius: 7px; font-size: 11px; line-height: 1.5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .cal-chip.paid { background: color-mix(in srgb, var(--paid) 16%, transparent); color: var(--paid); }
 .cal-chip.plan { background: color-mix(in srgb, var(--plan) 15%, transparent); color: var(--plan); }
 .cal-chip.late { background: color-mix(in srgb, var(--debt) 15%, transparent); color: var(--debt); }
@@ -159,7 +167,30 @@ summary.chip:hover, .chip:hover { background: var(--panel-2); }
 }
 
 /* ───────── Мобильная раскладка ───────── */
+/* Телефон: строки таблиц — карточки с подписями полей (подписи ставит labelTables). Сетки с классом tbl-keep остаются таблицами. */
 @media (max-width: 767px) {
+  .tbl:not(.tbl-keep), .tbl:not(.tbl-keep) tbody { display: block; width: 100%; }
+  .tbl:not(.tbl-keep) thead { display: none; }
+  .tbl:not(.tbl-keep) tr { display: block; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .tbl:not(.tbl-keep) tbody tr:last-child { border-bottom: 0; }
+  .tbl:not(.tbl-keep) td { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 3px 0; border: 0; text-align: right; max-width: none; min-width: 0; white-space: normal; }
+  .tbl:not(.tbl-keep) td::before { content: attr(data-label); flex: none; max-width: 42%; text-align: left; color: var(--muted); font-size: 11.5px; letter-spacing: .03em; text-transform: uppercase; }
+  .tbl:not(.tbl-keep) td[data-label='']::before, .tbl:not(.tbl-keep) td:not([data-label])::before { display: none; }
+  .tbl:not(.tbl-keep) td:first-child { display: block; text-align: left; font-weight: 600; padding-bottom: 6px; }
+  .tbl:not(.tbl-keep) td:first-child::before { display: none; }
+  .tbl:not(.tbl-keep) td.truncate, .tbl:not(.tbl-keep) td[class*='max-w'] { overflow: visible; text-overflow: clip; }
+  .tbl:not(.tbl-keep) tbody tr:hover td { background: transparent; }
+  .panel.overflow-auto { max-height: none !important; }
+  .row-link { cursor: pointer; }
+}
+.row-link { cursor: pointer; }
+
+@media (max-width: 767px) {
+  .hero { padding: 14px 16px; border-radius: 18px; }
+  .hero h1 { font-size: 1.25rem; }
+  .stat { padding: 12px 14px; border-radius: 16px; }
+  .stat-off { display: none; }
+  .stat .big { font-size: 1.4rem; }
   .tbl th, .tbl td { padding-left: 9px; padding-right: 9px; }
   main h1 { font-size: 1.25rem; }
 }

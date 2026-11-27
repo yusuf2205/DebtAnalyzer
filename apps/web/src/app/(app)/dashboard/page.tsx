@@ -14,6 +14,7 @@ const C = { paid: 'var(--paid)', debt: 'var(--debt)', plan: 'var(--plan)', pendi
 const PIE = ['#4f7a55', '#c27a1a', '#6659c2', '#cb4a3d'];
 const num = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
+const TABS = ['Долг', 'Оплачено', 'Просрочено', 'Скоро'];
 function greeting(name: string) {
   const h = new Date().getHours();
   return `${h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер'}, ${name.split(/\s+/)[0]}`;
@@ -28,9 +29,9 @@ function Big({ usd, rows, complete }: { usd: string | null | undefined; rows: { 
   return <div className="space-y-0.5">{nz.slice(0, 3).map((r) => <div key={r.cur} className="big" style={{ fontSize: '1.25rem' }}>{money(r.v)} <span className="text-sm font-normal muted">{r.cur}</span></div>)}</div>;
 }
 
-function StatTile({ tone, title, icon, hint, children }: { tone: string; title: string; icon: IconName; hint?: string; children: React.ReactNode }) {
+function StatTile({ tone, title, icon, hint, active = true, children }: { tone: string; title: string; icon: IconName; hint?: string; active?: boolean; children: React.ReactNode }) {
   return (
-    <div className={`stat ${tone}`}>
+    <div className={`stat ${tone} ${active ? '' : 'stat-off'}`}>
       <div className="flex items-center gap-2.5"><span className="stat-icon"><Icon name={icon} size={17} /></span><span className="text-sm" title={hint}>{title}</span></div>
       {children}
     </div>
@@ -44,6 +45,7 @@ export default function DashboardPage() {
   const [display, setDisplay] = useState('AUTO'); // AUTO = USD-эквивалент, если курсы есть
   const [d, setD] = useState<any>(null);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState(0); // телефон: какая из четырёх плиток показана
   const query = qs({ ...f, supplierId: supplier?.id });
   const activeFilters = [f.currency, supplier, f.project, f.executor, f.from, f.to].filter(Boolean).length + (f.status !== 'ACTIVE' ? 1 : 0);
 
@@ -64,10 +66,10 @@ export default function DashboardPage() {
         {d?.plant && <div className="deco hidden sm:block" title={PLANT_RULE_TEXT}><Plant plant={d.plant} /></div>}
         <p className="muted text-sm">{new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         <h1>{greeting(me?.name || 'коллега')}</h1>
-        <p className="muted mt-1 max-w-xl">Главное по задолженности перед поставщиками: сколько должны, сколько уже оплачено и что требует внимания.</p>
-        {d && <p className="text-sm mt-3"><b>{d.kpi.contracts}</b> <span className="muted">договоров</span> · <b>{d.kpi.suppliers}</b> <span className="muted">контрагентов</span></p>}
+        <p className="muted mt-1 max-w-xl hidden sm:block">Главное по задолженности перед поставщиками: сколько должны, сколько уже оплачено и что требует внимания.</p>
+        {d && <p className="text-sm mt-2 sm:mt-3"><b>{d.kpi.contracts}</b> <span className="muted">договоров</span> · <b>{d.kpi.suppliers}</b> <span className="muted">контрагентов</span></p>}
         {d?.plant && (
-          <div className="mt-3 flex items-start gap-2 text-sm max-w-xl" title={PLANT_RULE_TEXT}>
+          <div className="mt-2 sm:mt-3 flex items-start gap-2 text-xs sm:text-sm max-w-xl" title={PLANT_RULE_TEXT}>
             <span className={`badge ${d.plant.mood === 'healthy' ? 'b-ok' : d.plant.mood === 'thirsty' ? 'b-warn' : 'b-err'}`}>{STAGE_NAME[d.plant.stage as PlantStage]} · {MOOD_NAME[d.plant.mood as PlantMood]}</span>
             <span className="muted">{d.plant.message}</span>
           </div>)}
@@ -91,13 +93,18 @@ export default function DashboardPage() {
       {d?.rates.uzsNote && <div className="panel p-3" style={{ borderColor: 'var(--pending)' }}><b className="b-warn">Итоги в UZS неполные.</b> {d.rates.uzsNote} <Link className="underline" href="/fx">Курсы валют →</Link></div>}
 
       {!d ? <p className="muted">Загрузка…</p> : (<>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatTile tone="t-rose" title="Текущая задолженность" icon="payments"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.debt} rows={rows(d.kpi.byCurrency, 'debt')} /><span className="text-xs muted">Сколько ещё нужно оплатить</span></StatTile>
-          <StatTile tone="t-green" title="Оплачено" icon="check" hint="остаток из файла + подтверждённые платежи"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.paid} rows={rows(d.kpi.byCurrency, 'paid')} />
-            {paidPct !== null ? <><div className="bar" aria-hidden="true"><i style={{ width: `${paidPct}%` }} /></div><span className="text-xs muted">{paidPct}% от суммы договоров</span></> : <span className="text-xs muted">Подтверждённые платежи и остаток из файла</span>}</StatTile>
-          <StatTile tone="t-peach" title="Просрочено" icon="calendar" hint="невыполненный план прошедших недель, не больше долга"><Big complete={d.rates.uzsComplete} usd={d.overdue.totalUzs} rows={rows(d.overdue.byCurrency, 'amount')} /><span className="text-xs muted">{d.overdue.items.length ? `Обязательств: ${d.overdue.items.length}` : 'Просроченных нет'}</span></StatTile>
-          <StatTile tone="t-lav" title={`Ближайшие платежи (${d.upcoming.horizonDays} дн.)`} icon="reports"><Big complete={d.rates.uzsComplete} usd={d.upcoming.totalUzs} rows={rows(d.upcoming.byCurrency, 'amount')} /><span className="text-xs muted">{d.upcoming.items.length ? `По плану: ${d.upcoming.items.length}` : 'На этот период плана нет'}</span></StatTile>
+        <div className="md:hidden flex gap-1.5 overflow-x-auto" role="group" aria-label="Показатели">
+          {TABS.map((t, i) => <button key={t} type="button" className={`chip ${tab === i ? 'chip-on' : ''}`} aria-pressed={tab === i} onClick={() => setTab(i)}>{t}</button>)}
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatTile active={tab === 0} tone="t-rose" title="Текущая задолженность" icon="payments"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.debt} rows={rows(d.kpi.byCurrency, 'debt')} /><span className="text-xs muted">Сколько ещё нужно оплатить</span></StatTile>
+          <StatTile active={tab === 1} tone="t-green" title="Оплачено" icon="check" hint="остаток из файла + подтверждённые платежи"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.paid} rows={rows(d.kpi.byCurrency, 'paid')} />
+            {paidPct !== null ? <><div className="bar" aria-hidden="true"><i style={{ width: `${paidPct}%` }} /></div><span className="text-xs muted">{paidPct}% от суммы договоров</span></> : <span className="text-xs muted">Подтверждённые платежи и остаток из файла</span>}</StatTile>
+          <StatTile active={tab === 2} tone="t-peach" title="Просрочено" icon="calendar" hint="невыполненный план прошедших недель, не больше долга"><Big complete={d.rates.uzsComplete} usd={d.overdue.totalUzs} rows={rows(d.overdue.byCurrency, 'amount')} /><span className="text-xs muted">{d.overdue.items.length ? `Обязательств: ${d.overdue.items.length}` : 'Просроченных нет'}</span></StatTile>
+          <StatTile active={tab === 3} tone="t-lav" title={`Ближайшие платежи (${d.upcoming.horizonDays} дн.)`} icon="reports"><Big complete={d.rates.uzsComplete} usd={d.upcoming.totalUzs} rows={rows(d.upcoming.byCurrency, 'amount')} /><span className="text-xs muted">{d.upcoming.items.length ? `По плану: ${d.upcoming.items.length}` : 'На этот период плана нет'}</span></StatTile>
+        </div>
+
+        <div className="md:hidden"><Lists d={d} /></div>
 
         <div className="flex items-center gap-2 flex-wrap"><span className="muted text-sm">Графики показаны в:</span>
           <select className="input" value={display} onChange={(e) => setDisplay(e.target.value)}>
@@ -106,7 +113,7 @@ export default function DashboardPage() {
 
         <div className="grid lg:grid-cols-2 gap-4">
           <DebtBySupplierChart d={d} mode={mode} unit={unit} />
-          <Lists d={d} />
+          <div className="hidden md:block"><Lists d={d} /></div>
         </div>
         <PlanFactChart d={d} mode={mode} unit={unit} />
 
@@ -224,16 +231,19 @@ function DynamicsChart({ d, mode, unit }: any) {
 }
 
 function Lists({ d }: any) {
-  const row = (x: any, extra?: string) => <tr key={x.contractId + (x.year ?? '') + (x.week ?? '')}><td className="max-w-48 truncate"><Link className="underline" href={`/contracts/${x.contractId}`}>{x.number ?? '—'}</Link><div className="text-xs muted truncate">{x.supplier.name}</div></td><td className="num whitespace-nowrap">{money(x.amount)} {x.currency}</td>{extra !== undefined && <td className="text-xs muted whitespace-nowrap">{extra}</td>}</tr>;
+  const item = (x: any, extra?: string) => (
+    <li key={x.contractId + (x.year ?? '') + (x.week ?? '')} className="flex items-baseline justify-between gap-3 py-2 border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
+      <div className="min-w-0"><Link className="block truncate underline" href={`/contracts/${x.contractId}`}>{x.number ?? '—'}</Link><div className="text-xs muted truncate">{x.supplier.name}</div></div>
+      <div className="text-right shrink-0"><div className="font-medium whitespace-nowrap tabular-nums">{money(x.amount)} {x.currency}</div>{extra !== undefined && <div className="text-xs muted whitespace-nowrap">{extra}</div>}</div>
+    </li>);
+  const list = (items: any[], empty: string, extra?: (x: any) => string) => items.length
+    ? <ul>{items.slice(0, 5).map((x) => item(x, extra?.(x)))}</ul> : <p className="muted text-sm py-1">{empty}</p>;
   return (
     <Panel title="Требуют внимания">
       <div className="space-y-3">
-        <div><h3 className="text-sm font-semibold b-err">Просрочено</h3>
-          <table className="tbl"><tbody>{d.overdue.items.slice(0, 5).map((x: any) => row(x))}{!d.overdue.items.length && <tr><td className="muted">Просроченных обязательств нет</td></tr>}</tbody></table></div>
-        <div><h3 className="text-sm font-semibold b-info">Ближайшие платежи</h3>
-          <table className="tbl"><tbody>{d.upcoming.items.slice(0, 5).map((x: any) => row(x, `${x.from.slice(5)}…${x.to.slice(5)}`))}{!d.upcoming.items.length && <tr><td className="muted">На ближайшие недели плана нет</td></tr>}</tbody></table></div>
-        {d.overpaid.items.length > 0 && <div><h3 className="text-sm font-semibold b-info">Переплаты</h3>
-          <table className="tbl"><tbody>{d.overpaid.items.slice(0, 5).map((x: any) => row(x))}</tbody></table></div>}
+        <div><h3 className="text-sm font-semibold b-err">Просрочено</h3>{list(d.overdue.items, 'Просроченных обязательств нет')}</div>
+        <div><h3 className="text-sm font-semibold b-info">Ближайшие платежи</h3>{list(d.upcoming.items, 'На ближайшие недели плана нет', (x) => `${x.from.slice(5)}…${x.to.slice(5)}`)}</div>
+        {d.overpaid.items.length > 0 && <div><h3 className="text-sm font-semibold b-info">Переплаты</h3>{list(d.overpaid.items, '')}</div>}
         <p className="text-xs"><Link className="underline" href="/calendar">Календарь платежей →</Link> · <Link className="underline" href="/reports">Отчёты →</Link></p>
       </div>
     </Panel>
