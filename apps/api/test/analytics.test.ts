@@ -90,6 +90,14 @@ describe('M6: дашборд', () => {
     expect(by('EUR').rateDate).toBe(today);
     expect(d.kpi.totalUsd).toMatchObject({ debt: '9000.00', overpaid: '111.46' });
     expect(d.rates).toMatchObject({ missing: [], usdComplete: true });
+    // основная валюта — UZS: 8000 USD × 12085 + 12 085 000 UZS (EUR долга не имеет)
+    expect(by('USD').uzs).toMatchObject({ debt: '96680000.00' });
+    expect(by('UZS').uzs).toMatchObject({ debt: '12085000.00' });
+    expect(by('EUR').uzs).toMatchObject({ overpaid: '1347000.00' });
+    expect(d.kpi.totalUzs).toMatchObject({ debt: '108765000.00', overpaid: '1347000.00' });
+    expect(d.rates).toMatchObject({ missingUzs: [], uzsComplete: true, uzsNote: null });
+    expect(d.plant).toMatchObject({ stage: expect.any(Number), mood: expect.stringMatching(/^(healthy|thirsty|wilting|dead)$/), daysSincePayment: expect.any(Number) });
+    expect(typeof d.plant.message).toBe('string');
   });
 
   it('нет подтверждённого курса — эквивалент не выдумывается, итог неполный, причина названа', async () => {
@@ -98,6 +106,9 @@ describe('M6: дашборд', () => {
     expect(rub).toMatchObject({ currency: 'RUB', debt: '5000.00', usd: null, rate: null });
     expect(d.kpi.totalUsd.debt).toBeNull();
     expect(d.rates).toMatchObject({ missing: ['RUB'], usdComplete: false });
+    expect(rub.uzs).toBeNull(); expect(d.kpi.totalUzs.debt).toBeNull();
+    expect(d.rates).toMatchObject({ missingUzs: ['RUB'], uzsComplete: false });
+    expect(d.rates.uzsNote).toMatch(/курса для: RUB/);
     expect(d.rates.note).toMatch(/RUB/);
   });
 

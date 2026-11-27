@@ -5,3 +5,4 @@ export * from './rbac';
 export * from './supplier-normalize';
 export * from './calendar';
 export * from './fx';
+export * from './plant';

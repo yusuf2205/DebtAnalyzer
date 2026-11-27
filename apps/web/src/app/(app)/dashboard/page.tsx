@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, money } from '@/lib/api';
 import { Icon, type IconName } from '@/lib/icons';
+import { MOOD_NAME, PLANT_RULE_TEXT, Plant, STAGE_NAME } from '@/lib/plant';
 import { useSession } from '@/lib/session';
+import type { PlantMood, PlantStage } from '@pf/shared';
 import { CURRENCIES, SupplierPicker, compact, qs } from '@/lib/ui';
 
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -18,9 +20,10 @@ function greeting(name: string) {
 }
 
 /** Главное число плитки: итог в USD, а без курсов — суммы по валютам (валюты не смешиваются). */
+const whole = (v: any) => Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
 function Big({ usd, rows, complete }: { usd: string | null | undefined; rows: { cur: string; v: string }[]; complete?: boolean }) {
   const nz = rows.filter((r) => num(r.v) !== 0);
-  if (usd !== null && usd !== undefined) return <div className="big">{money(usd)} <span className="text-sm font-normal muted" title={complete === false ? 'Не по всем валютам есть подтверждённый курс: в итог вошли только валюты с курсом' : undefined}>{complete === false ? 'USD*' : 'USD'}</span></div>;
+  if (usd !== null && usd !== undefined) return <div className="big" title={`${money(usd)} UZS`}>{whole(usd)} <span className="text-sm font-normal muted" title={complete === false ? 'Не по всем валютам есть подтверждённый курс: в итог вошли только валюты с курсом' : undefined}>{complete === false ? 'UZS*' : 'UZS'}</span></div>;
   if (!nz.length) return <div className="big muted">—</div>;
   return <div className="space-y-0.5">{nz.slice(0, 3).map((r) => <div key={r.cur} className="big" style={{ fontSize: '1.25rem' }}>{money(r.v)} <span className="text-sm font-normal muted">{r.cur}</span></div>)}</div>;
 }
@@ -50,25 +53,24 @@ export default function DashboardPage() {
   }, [query, f.project, f.executor]);
 
   const present: string[] = useMemo(() => d?.kpi.byCurrency.map((c: any) => c.currency) ?? [], [d]);
-  const mode = display === 'AUTO' ? (d?.rates.usdComplete && present.length ? 'USD_EQ' : (present.includes('USD') ? 'USD' : present[0] ?? 'USD')) : display;
-  const unit = mode === 'USD_EQ' ? 'USD (экв.)' : mode;
+  const mode = display === 'AUTO' ? (d?.rates.uzsComplete && present.length ? 'UZS_EQ' : (present.includes('UZS') ? 'UZS' : present[0] ?? 'UZS')) : display;
+  const unit = mode === 'UZS_EQ' ? 'UZS (экв.)' : mode === 'USD_EQ' ? 'USD (экв.)' : mode;
   const rows = (arr: any[], k: string) => arr.map((c: any) => ({ cur: c.currency, v: c[k] }));
-  const paidPct = d && d.rates.usdComplete && num(d.kpi.totalUsd.amount) > 0 ? Math.min(100, Math.round((num(d.kpi.totalUsd.paid) / num(d.kpi.totalUsd.amount)) * 100)) : null;
+  const paidPct = d && d.rates.uzsComplete && num(d.kpi.totalUzs.amount) > 0 ? Math.min(100, Math.round((num(d.kpi.totalUzs.paid) / num(d.kpi.totalUzs.amount)) * 100)) : null;
 
   return (
     <div className="space-y-5 max-w-7xl">
       <section className="hero">
-        <svg className="deco hidden sm:block" width="190" height="130" viewBox="0 0 190 130" fill="none" aria-hidden="true">
-          <path d="M95 130V58" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
-          <path d="M95 92C70 92 54 76 52 52c26 0 42 14 43 40z" fill="var(--accent)" opacity=".55" />
-          <path d="M95 74C118 72 134 56 136 34c-24 2-40 16-41 40z" fill="var(--accent)" opacity=".8" />
-          <path d="M95 58C84 46 84 28 95 14c11 14 11 32 0 44z" fill="var(--accent)" />
-          <rect x="68" y="108" width="54" height="22" rx="8" fill="var(--t-peach)" stroke="var(--border)" />
-        </svg>
+        {d?.plant && <div className="deco hidden sm:block" title={PLANT_RULE_TEXT}><Plant plant={d.plant} /></div>}
         <p className="muted text-sm">{new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         <h1>{greeting(me?.name || 'коллега')}</h1>
         <p className="muted mt-1 max-w-xl">Главное по задолженности перед поставщиками: сколько должны, сколько уже оплачено и что требует внимания.</p>
         {d && <p className="text-sm mt-3"><b>{d.kpi.contracts}</b> <span className="muted">договоров</span> · <b>{d.kpi.suppliers}</b> <span className="muted">контрагентов</span></p>}
+        {d?.plant && (
+          <div className="mt-3 flex items-start gap-2 text-sm max-w-xl" title={PLANT_RULE_TEXT}>
+            <span className={`badge ${d.plant.mood === 'healthy' ? 'b-ok' : d.plant.mood === 'thirsty' ? 'b-warn' : 'b-err'}`}>{STAGE_NAME[d.plant.stage as PlantStage]} · {MOOD_NAME[d.plant.mood as PlantMood]}</span>
+            <span className="muted">{d.plant.message}</span>
+          </div>)}
       </section>
       {error && <p role="alert" className="b-err">{error}</p>}
 
@@ -86,20 +88,20 @@ export default function DashboardPage() {
         </div>
       </details>
 
-      {d?.rates.note && <div className="panel p-3" style={{ borderColor: 'var(--pending)' }}><b className="b-warn">Итоги в USD неполные.</b> {d.rates.note} <Link className="underline" href="/fx">Курсы валют →</Link></div>}
+      {d?.rates.uzsNote && <div className="panel p-3" style={{ borderColor: 'var(--pending)' }}><b className="b-warn">Итоги в UZS неполные.</b> {d.rates.uzsNote} <Link className="underline" href="/fx">Курсы валют →</Link></div>}
 
       {!d ? <p className="muted">Загрузка…</p> : (<>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatTile tone="t-rose" title="Текущая задолженность" icon="payments"><Big complete={d.rates.usdComplete} usd={d.kpi.totalUsd.debt} rows={rows(d.kpi.byCurrency, 'debt')} /><span className="text-xs muted">Сколько ещё нужно оплатить</span></StatTile>
-          <StatTile tone="t-green" title="Оплачено" icon="check" hint="остаток из файла + подтверждённые платежи"><Big complete={d.rates.usdComplete} usd={d.kpi.totalUsd.paid} rows={rows(d.kpi.byCurrency, 'paid')} />
+          <StatTile tone="t-rose" title="Текущая задолженность" icon="payments"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.debt} rows={rows(d.kpi.byCurrency, 'debt')} /><span className="text-xs muted">Сколько ещё нужно оплатить</span></StatTile>
+          <StatTile tone="t-green" title="Оплачено" icon="check" hint="остаток из файла + подтверждённые платежи"><Big complete={d.rates.uzsComplete} usd={d.kpi.totalUzs.paid} rows={rows(d.kpi.byCurrency, 'paid')} />
             {paidPct !== null ? <><div className="bar" aria-hidden="true"><i style={{ width: `${paidPct}%` }} /></div><span className="text-xs muted">{paidPct}% от суммы договоров</span></> : <span className="text-xs muted">Подтверждённые платежи и остаток из файла</span>}</StatTile>
-          <StatTile tone="t-peach" title="Просрочено" icon="calendar" hint="невыполненный план прошедших недель, не больше долга"><Big complete={d.rates.usdComplete} usd={d.overdue.totalUsd} rows={rows(d.overdue.byCurrency, 'amount')} /><span className="text-xs muted">{d.overdue.items.length ? `Обязательств: ${d.overdue.items.length}` : 'Просроченных нет'}</span></StatTile>
-          <StatTile tone="t-lav" title={`Ближайшие платежи (${d.upcoming.horizonDays} дн.)`} icon="reports"><Big complete={d.rates.usdComplete} usd={d.upcoming.totalUsd} rows={rows(d.upcoming.byCurrency, 'amount')} /><span className="text-xs muted">{d.upcoming.items.length ? `По плану: ${d.upcoming.items.length}` : 'На этот период плана нет'}</span></StatTile>
+          <StatTile tone="t-peach" title="Просрочено" icon="calendar" hint="невыполненный план прошедших недель, не больше долга"><Big complete={d.rates.uzsComplete} usd={d.overdue.totalUzs} rows={rows(d.overdue.byCurrency, 'amount')} /><span className="text-xs muted">{d.overdue.items.length ? `Обязательств: ${d.overdue.items.length}` : 'Просроченных нет'}</span></StatTile>
+          <StatTile tone="t-lav" title={`Ближайшие платежи (${d.upcoming.horizonDays} дн.)`} icon="reports"><Big complete={d.rates.uzsComplete} usd={d.upcoming.totalUzs} rows={rows(d.upcoming.byCurrency, 'amount')} /><span className="text-xs muted">{d.upcoming.items.length ? `По плану: ${d.upcoming.items.length}` : 'На этот период плана нет'}</span></StatTile>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap"><span className="muted text-sm">Графики показаны в:</span>
           <select className="input" value={display} onChange={(e) => setDisplay(e.target.value)}>
-            <option value="AUTO">Авто</option>{d.rates.usdComplete && <option value="USD_EQ">USD (эквивалент всех валют)</option>}{present.map((c) => <option key={c} value={c}>{c} (в исходной валюте)</option>)}
+            <option value="AUTO">Авто</option>{d.rates.uzsComplete && <option value="UZS_EQ">UZS (эквивалент всех валют)</option>}{d.rates.usdComplete && <option value="USD_EQ">USD (эквивалент всех валют)</option>}{present.map((c) => <option key={c} value={c}>{c} (в исходной валюте)</option>)}
           </select><span className="muted text-xs">сейчас: {unit}</span></div>
 
         <div className="grid lg:grid-cols-2 gap-4">
@@ -112,9 +114,9 @@ export default function DashboardPage() {
           <summary className="font-semibold">Подробный анализ</summary>
           <div className="space-y-4 mt-4">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <Money complete={d.rates.usdComplete} title="Сумма договоров" tone="" usd={d.kpi.totalUsd.amount} rows={rows(d.kpi.byCurrency, 'amount')} />
-              <Money complete={d.rates.usdComplete} title="Плановые платежи" tone="b-info" hint="не уменьшают долг" usd={d.kpi.totalUsd.planned} rows={rows(d.kpi.byCurrency, 'planned')} />
-              <Money complete={d.rates.usdComplete} title="Переплаты" tone="b-info" usd={d.overpaid.totalUsd} rows={rows(d.overpaid.byCurrency, 'amount')} empty="нет" />
+              <Money complete={d.rates.uzsComplete} title="Сумма договоров" tone="" usd={d.kpi.totalUzs.amount} rows={rows(d.kpi.byCurrency, 'amount')} />
+              <Money complete={d.rates.uzsComplete} title="Плановые платежи" tone="b-info" hint="не уменьшают долг" usd={d.kpi.totalUzs.planned} rows={rows(d.kpi.byCurrency, 'planned')} />
+              <Money complete={d.rates.uzsComplete} title="Переплаты" tone="b-info" usd={d.overpaid.totalUzs} rows={rows(d.overpaid.byCurrency, 'amount')} empty="нет" />
             </div>
             <div className="grid lg:grid-cols-2 gap-4">
               <SuppliersAmountChart d={d} mode={mode} unit={unit} />
@@ -140,7 +142,7 @@ function Money({ title, tone, usd, rows, hint, empty, complete }: { title: strin
   return (
     <div className="panel p-3 space-y-1">
       <div className="muted text-xs" title={hint}>{title}</div>
-      {usd !== null && usd !== undefined ? <div className={`text-xl font-semibold ${tone}`}>{money(usd)} <span className={`text-xs font-normal ${complete === false ? 'b-warn' : 'muted'}`} title={complete === false ? 'Не по всем валютам есть подтверждённый курс: в итог вошли только валюты с курсом' : undefined}>{complete === false ? 'USD, итог неполный' : 'USD экв.'}</span></div> : <div className="text-sm muted">{nz.length ? 'USD: нет курса' : (empty ?? '—')}</div>}
+      {usd !== null && usd !== undefined ? <div className={`text-xl font-semibold ${tone}`}>{money(usd)} <span className={`text-xs font-normal ${complete === false ? 'b-warn' : 'muted'}`} title={complete === false ? 'Не по всем валютам есть подтверждённый курс: в итог вошли только валюты с курсом' : undefined}>{complete === false ? 'UZS, итог неполный' : 'UZS экв.'}</span></div> : <div className="text-sm muted">{nz.length ? 'UZS: нет курса' : (empty ?? '—')}</div>}
       <div className="space-y-0.5">{nz.map((r) => <div key={r.cur} className="text-xs flex justify-between gap-2"><span className="muted">{r.cur}</span><span className={tone}>{money(r.v)}</span></div>)}</div>
     </div>
   );
@@ -153,7 +155,7 @@ const tt = (unit: string) => ({ formatter: (v: any) => `${money(v)} ${unit}`, co
 const axis = { tick: { fill: 'var(--muted)', fontSize: 11 }, stroke: 'var(--border)' };
 
 function pick(s: any, k: 'amount' | 'paid' | 'debt', mode: string) {
-  return mode === 'USD_EQ' ? (s.usd ? num(s.usd[k]) : null) : num(s.byCurrency[mode]?.[k]);
+  return mode === 'UZS_EQ' ? (s.uzs ? num(s.uzs[k]) : null) : mode === 'USD_EQ' ? (s.usd ? num(s.usd[k]) : null) : num(s.byCurrency[mode]?.[k]);
 }
 
 function SuppliersAmountChart({ d, mode, unit }: any) {
@@ -170,14 +172,14 @@ function SuppliersAmountChart({ d, mode, unit }: any) {
 }
 
 function DebtByCurrencyChart({ d }: any) {
-  const data = d.kpi.byCurrency.map((c: any) => ({ name: c.currency, value: c.usd ? num(c.usd.debt) : 0, native: c.debt, has: !!c.usd })).filter((x: any) => x.value > 0);
-  const missing = d.kpi.byCurrency.filter((c: any) => !c.usd && num(c.debt) > 0).map((c: any) => c.currency);
+  const data = d.kpi.byCurrency.map((c: any) => ({ name: c.currency, value: c.uzs ? num(c.uzs.debt) : 0, native: c.debt, has: !!c.uzs })).filter((x: any) => x.value > 0);
+  const missing = d.kpi.byCurrency.filter((c: any) => !c.uzs && num(c.debt) > 0).map((c: any) => c.currency);
   return (
-    <Panel title="Задолженность по валютам" note="Доля в эквиваленте USD по подтверждённым курсам.">
+    <Panel title="Задолженность по валютам" note="Доля в эквиваленте UZS по подтверждённым курсам.">
       {data.length === 0 ? <p className="muted text-sm">Нужны подтверждённые курсы валют, чтобы сравнить валюты. <Link className="underline" href="/fx">Подтвердить курсы →</Link></p> : (
         <ResponsiveContainer width="100%" height={300}><PieChart>
           <Pie isAnimationActive={false} data={data} dataKey="value" nameKey="name" outerRadius={100} label={(p: any) => `${p.name} ${(p.percent * 100).toFixed(0)}%`}>{data.map((_: any, i: number) => <Cell key={i} fill={PIE[i % PIE.length]} />)}</Pie>
-          <Tooltip {...tt('USD экв.')} /><Legend /></PieChart></ResponsiveContainer>)}
+          <Tooltip {...tt('UZS экв.')} /><Legend /></PieChart></ResponsiveContainer>)}
       {missing.length > 0 && data.length > 0 && <p className="text-xs b-warn">Не показаны (нет курса): {missing.join(', ')}</p>}
     </Panel>
   );
@@ -197,7 +199,7 @@ function DebtBySupplierChart({ d, mode, unit }: any) {
 
 function PlanFactChart({ d, mode, unit }: any) {
   const data = d.charts.months.map((m: any) => {
-    const v = mode === 'USD_EQ' ? m.usd : m.byCurrency[mode];
+    const v = mode === 'UZS_EQ' ? m.uzs : mode === 'USD_EQ' ? m.usd : m.byCurrency[mode];
     return { name: `${MONTHS[m.month - 1]} ${String(m.year).slice(2)}`, planned: v ? num(v.planned) : null, actual: v ? num(v.actual) : 0 };
   });
   return (
@@ -210,7 +212,7 @@ function PlanFactChart({ d, mode, unit }: any) {
 }
 
 function DynamicsChart({ d, mode, unit }: any) {
-  const data = d.charts.dynamics.map((p: any) => ({ date: p.date.slice(5), value: mode === 'USD_EQ' ? (p.usdComplete ? num(p.totalUsd) : null) : num(p.byCurrency[mode]) }));
+  const data = d.charts.dynamics.map((p: any) => ({ date: p.date.slice(5), value: mode === 'UZS_EQ' ? (p.uzsComplete ? num(p.totalUzs) : null) : mode === 'USD_EQ' ? (p.usdComplete ? num(p.totalUsd) : null) : num(p.byCurrency[mode]) }));
   return (
     <Panel title="Динамика задолженности" note={`${unit}. Накапливается ежедневными снимками с момента запуска; снимок — по всему портфелю без фильтров.`}>
       {data.length < 2 ? <p className="muted text-sm">Снимков пока {data.length}. График появится, когда накопится хотя бы два дня.{data.length === 1 && <> Сейчас: {money(data[0].value)} {unit}.</>}</p> : (

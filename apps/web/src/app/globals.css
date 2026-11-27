@@ -129,6 +129,35 @@ summary.chip, .chip { display: inline-flex; align-items: center; gap: 6px; paddi
 summary.chip::-webkit-details-marker { display: none; }
 summary.chip:hover, .chip:hover { background: var(--panel-2); }
 
+/* ───────── Календарь ───────── */
+@keyframes plant-grow { from { transform: scale(.82); opacity: .4; } to { transform: scale(1); opacity: 1; } }
+.cal-head, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.cal-head > div { padding: 8px 10px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.cal-grid { gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
+.cal-cell {
+  position: relative; display: flex; flex-direction: column; gap: 3px; align-items: stretch; text-align: left; min-height: 104px; padding: 6px 7px;
+  background: var(--panel); color: var(--text); border: 0; cursor: pointer; font: inherit; transition: background .12s;
+}
+.cal-cell:hover { background: var(--panel-2); }
+.cal-cell.out { background: var(--panel-2); color: var(--muted); }
+.cal-cell.out .cal-chip { opacity: .7; }
+.cal-cell[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-day { display: inline-grid; place-items: center; min-width: 24px; height: 24px; border-radius: 999px; font-weight: 600; font-size: 12.5px; }
+.cal-cell.today .cal-day { background: var(--accent); color: var(--on-accent); }
+.cal-wk { position: absolute; top: 7px; right: 8px; font-size: 10.5px; color: var(--muted); }
+.cal-chip { display: block; padding: 1px 7px; border-radius: 8px; font-size: 11.5px; line-height: 1.5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.cal-chip.paid { background: color-mix(in srgb, var(--paid) 16%, transparent); color: var(--paid); }
+.cal-chip.plan { background: color-mix(in srgb, var(--plan) 15%, transparent); color: var(--plan); }
+.cal-chip.late { background: color-mix(in srgb, var(--debt) 15%, transparent); color: var(--debt); }
+.cal-dots { display: none; gap: 3px; flex-wrap: wrap; }
+.cal-dots i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+@media (max-width: 639px) {
+  .cal-cell { min-height: 56px; padding: 4px; align-items: center; }
+  .cal-cell .cal-chip, .cal-wk { display: none; }
+  .cal-dots { display: flex; justify-content: center; }
+  .cal-head > div { padding: 6px 2px; text-align: center; font-size: 10.5px; }
+}
+
 /* ───────── Мобильная раскладка ───────── */
 @media (max-width: 767px) {
   .tbl th, .tbl td { padding-left: 9px; padding-right: 9px; }

@@ -136,6 +136,24 @@ export class CalendarController {
     };
   }
 
+  /** Подтверждённые платежи приложения по дням месяца — для сетки календаря. Тот же набор фильтров, что и у плана. */
+  @Get('days')
+  @RequirePermission('plans.view')
+  async days(@Query() raw: Record<string, string>) {
+    const q = parse(monthQuery, raw);
+    const last = new Date(Date.UTC(q.year, q.month, 0)).getUTCDate();
+    const from = `${q.year}-${String(q.month).padStart(2, '0')}-01`, to = `${q.year}-${String(q.month).padStart(2, '0')}-${last}`;
+    const rows = await this.prisma.payment.findMany({
+      where: { status: 'APPROVED', paymentDate: { gte: new Date(from), lte: new Date(to) }, contract: this.contractWhere(q) },
+      orderBy: [{ paymentDate: 'asc' }, { createdAt: 'asc' }], take: 2000,
+      select: { id: true, paymentDate: true, currency: true, kind: true, signedAmount: true, contract: { select: { id: true, number: true, supplier: { select: { name: true } } } } },
+    });
+    return {
+      year: q.year, month: q.month,
+      payments: rows.map((p) => ({ id: p.id, date: p.paymentDate.toISOString().slice(0, 10), contractId: p.contract.id, number: p.contract.number, supplier: p.contract.supplier.name, currency: p.currency, kind: p.kind, amount: money(dec(p.signedAmount?.toString() ?? 0)).toFixed(2) })),
+    };
+  }
+
   @Get('year')
   @RequirePermission('plans.view')
   async year(@Query() raw: Record<string, string>) {

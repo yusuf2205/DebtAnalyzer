@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { api, money } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { CURRENCIES, Modal, qs } from '@/lib/ui';
+import { CURRENCIES, Modal, compact, qs } from '@/lib/ui';
 
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 const num = (v: any) => Number(v ?? 0);
@@ -15,7 +15,9 @@ function Calendar() {
   const { can } = useSession();
   const sp = useSearchParams();
   const now = new Date();
-  const [view, setView] = useState<'month' | 'year'>('month');
+  const [view, setView] = useState<'cal' | 'month' | 'year'>('cal');
+  const [days, setDays] = useState<any>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [year, setYear] = useState(Number(sp.get('year')) || now.getFullYear());
   const [month, setMonth] = useState(Number(sp.get('month')) || now.getMonth() + 1);
   const [f, setF] = useState({ currency: '', q: '', executor: '', contractId: sp.get('contractId') ?? '' });
@@ -26,14 +28,16 @@ function Calendar() {
   const [modal, setModal] = useState<any>(null);
   const manage = can('plans.manage');
 
-  const query = qs({ ...f, year, ...(view === 'month' ? { month } : {}) });
+  const query = qs({ ...f, year, ...(view !== 'year' ? { month } : {}) });
   const load = useCallback(() => {
-    api('GET', `/calendar/${view}?${query}`).then(setData).catch((e) => setError(e.message));
+    api('GET', `/calendar/${view === 'year' ? 'year' : 'month'}?${query}`).then(setData).catch((e) => setError(e.message));
+    if (view === 'cal') api('GET', `/calendar/days?${qs({ ...f, year, month })}`).then(setDays).catch(() => {});
     api('GET', `/calendar/unplanned?${qs(f)}`).then(setUnplanned).catch(() => {});
   }, [view, query, f]);
   useEffect(() => { const t = setTimeout(load, f.q || f.executor ? 250 : 0); return () => clearTimeout(t); }, [load, f.q, f.executor]);
   useEffect(() => { api('GET', '/calendar/settings').then(setSettings).catch(() => {}); }, []);
 
+  const changeView = (v: 'cal' | 'month' | 'year') => { if ((v === 'year') !== (view === 'year')) setData(null); setView(v); };
   const shift = (d: number) => { if (view === 'year') return setYear(year + d); const m = month + d; if (m < 1) { setMonth(12); setYear(year - 1); } else if (m > 12) { setMonth(1); setYear(year + 1); } else setMonth(m); };
   const done = () => { setModal(null); load(); };
 
@@ -47,9 +51,9 @@ function Calendar() {
       {error && <p role="alert" className="b-err">{error}</p>}
 
       <div className="flex gap-2 flex-wrap items-center">
-        <div className="flex gap-1"><button className={`btn ${view === 'month' ? 'btn-primary' : ''}`} onClick={() => setView('month')}>Месяц</button><button className={`btn ${view === 'year' ? 'btn-primary' : ''}`} onClick={() => setView('year')}>Год</button></div>
+        <div className="flex gap-1"><button className={`btn ${view === 'cal' ? 'btn-primary' : ''}`} onClick={() => changeView('cal')}>Календарь</button><button className={`btn ${view === 'month' ? 'btn-primary' : ''}`} onClick={() => changeView('month')}>Таблица</button><button className={`btn ${view === 'year' ? 'btn-primary' : ''}`} onClick={() => changeView('year')}>Год</button></div>
         <button className="btn" onClick={() => shift(-1)} aria-label="Назад">←</button>
-        <b className="min-w-36 text-center">{view === 'month' ? `${MONTHS[month - 1]} ${year}` : year}</b>
+        <b className="min-w-36 text-center">{view !== 'year' ? `${MONTHS[month - 1]} ${year}` : year}</b>
         <button className="btn" onClick={() => shift(1)} aria-label="Вперёд">→</button>
         <button className="btn" onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth() + 1); }}>Сегодня</button>
         <select className="input" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="">Все валюты</option>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
@@ -58,8 +62,10 @@ function Calendar() {
         {f.contractId && <button className="btn" onClick={() => setF({ ...f, contractId: '' })}>Сбросить фильтр по договору ✕</button>}
       </div>
 
-      {view === 'month' && data && <MonthView data={data} manage={manage} onCell={(row: any, cell: any) => setModal({ type: 'cell', row, cell, year, month })} />}
-      {view === 'year' && data && <YearView data={data} onMonth={(m: number) => { setMonth(m); setView('month'); }} />}
+      {view === 'cal' && data && data.weeks && <CalendarView year={year} month={month} data={data} days={days} selected={selected} onSelect={setSelected} manage={manage}
+        onCell={(row: any, cell: any) => setModal({ type: 'cell', row, cell, year, month })} onAdd={(week: number) => setModal({ type: 'add', year, month, week })} />}
+      {view === 'month' && data && data.weeks && <MonthView data={data} manage={manage} onCell={(row: any, cell: any) => setModal({ type: 'cell', row, cell, year, month })} />}
+      {view === 'year' && data && data.months && <YearView data={data} onMonth={(m: number) => { setMonth(m); setData(null); setView('cal'); }} />}
 
       {unplanned?.totals?.length > 0 && (
         <section className="panel p-4 space-y-2">
@@ -75,6 +81,94 @@ function Calendar() {
 
       {modal?.type === 'cell' && <CellModal {...modal} manage={manage} onClose={() => setModal(null)} onDone={done} />}
       {modal?.type === 'add' && <AddModal {...modal} onClose={() => setModal(null)} onDone={done} />}
+    </div>
+  );
+}
+
+const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const pad = (n: number) => String(n).padStart(2, '0');
+const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const RU_DATE = (iso: string) => { const t = new Date(`${iso}T00:00:00Z`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'long', timeZone: 'UTC' }); return t.charAt(0).toUpperCase() + t.slice(1); };
+const KIND: Record<string, string> = { PAYMENT: 'Оплата', REFUND: 'Возврат', REVERSAL: 'Сторно' };
+
+/** Календарная сетка месяца: факт (подтверждённые платежи) — по дням; план задан по неделям, поэтому показан на первом дне недели. */
+function CalendarView({ year, month, data, days, selected, onSelect, manage, onCell, onAdd }: any) {
+  const today = localToday();
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const lead = (first.getUTCDay() + 6) % 7;
+  const dim = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const total = Math.ceil((lead + dim) / 7) * 7;
+  const cells = Array.from({ length: total }, (_, i) => { const dt = new Date(Date.UTC(year, month - 1, 1 - lead + i)); return { iso: dt.toISOString().slice(0, 10), day: dt.getUTCDate(), inMonth: dt.getUTCMonth() === month - 1 }; });
+  const payments: any[] = days?.payments ?? [];
+  const paysBy = new Map<string, any[]>();
+  for (const p of payments) paysBy.set(p.date, [...(paysBy.get(p.date) ?? []), p]);
+  const weekOfDay = (day: number) => data.weeks.find((w: any) => day >= w.from && day <= w.to);
+  const planOn = (c: { iso: string; day: number; inMonth: boolean }) => {
+    if (!c.inMonth) return null;
+    const wi = data.weeks.findIndex((w: any) => w.from === c.day);
+    if (wi < 0) return null;
+    const items = data.totals.map((t: any) => ({ cur: t.currency, w: t.weeks[wi] })).filter((x: any) => num(x.w?.planned) > 0 || num(x.w?.overdue) > 0);
+    return { week: data.weeks[wi].week, items };
+  };
+  const sel = selected ?? (today.startsWith(`${year}-${pad(month)}`) ? today : null);
+  const selDay = sel && sel.startsWith(`${year}-${pad(month)}`) ? Number(sel.slice(8)) : null;
+  const selWeek = selDay ? weekOfDay(selDay) : null;
+  const selPays = sel ? paysBy.get(sel) ?? [] : [];
+  const selPlans = selWeek ? data.rows.map((r: any) => ({ r, c: r.cells.find((c: any) => c.week === selWeek.week) })).filter((x: any) => x.c && (x.c.planned || num(x.c.actual) !== 0)) : [];
+
+  return (
+    <div className="space-y-3">
+      {data.totals.length > 0 && (
+        <div className="flex gap-3 flex-wrap">
+          {data.totals.map((t: any) => (
+            <div key={t.currency} className="panel px-4 py-2 text-sm"><b>{t.currency}</b> · <span className="b-info">план {money(t.total.planned)}</span> · <span className="b-ok">факт {money(t.total.actual)}</span>
+              {num(t.total.remaining) > 0 && <> · <span className="b-warn">остаток {money(t.total.remaining)}</span></>}</div>))}
+        </div>)}
+      <div className="panel overflow-hidden">
+        <div className="cal-head">{WEEKDAYS.map((w) => <div key={w}>{w}</div>)}</div>
+        <div className="cal-grid">
+          {cells.map((c) => {
+            const ps = paysBy.get(c.iso) ?? [];
+            const byCur = new Map<string, number>();
+            for (const p of ps) byCur.set(p.currency, (byCur.get(p.currency) ?? 0) + Number(p.amount));
+            const pays = [...byCur];
+            const plan = planOn(c);
+            const late = plan?.items.some((x: any) => num(x.w?.overdue) > 0);
+            return (
+              <button key={c.iso} type="button" className={`cal-cell ${c.inMonth ? '' : 'out'} ${c.iso === today ? 'today' : ''}`} aria-pressed={c.iso === sel} onClick={() => onSelect(c.iso)}
+                aria-label={`${RU_DATE(c.iso)}${ps.length ? `, платежей: ${ps.length}` : ''}${plan?.items.length ? ', есть план недели' : ''}`}>
+                <span className="cal-day">{c.day}</span>
+                {plan && <span className="cal-wk">W{plan.week}</span>}
+                {pays.slice(0, 2).map(([cur, sum]) => <span key={cur} className={`cal-chip ${sum < 0 ? 'late' : 'paid'}`}>{sum > 0 ? '+' : ''}{compact(sum)} {cur}</span>)}
+                {pays.length > 2 && <span className="cal-chip paid">+{pays.length - 2} вал.</span>}
+                {plan?.items.slice(0, 2).map((x: any) => num(x.w.planned) > 0 && <span key={x.cur} className="cal-chip plan">план {compact(x.w.planned)} {x.cur}</span>)}
+                {late && <span className="cal-chip late">просрочено</span>}
+                <span className="cal-dots">{ps.length > 0 && <i style={{ background: 'var(--paid)' }} />}{plan && plan.items.length > 0 && <i style={{ background: 'var(--plan)' }} />}{late && <i style={{ background: 'var(--debt)' }} />}</span>
+              </button>);
+          })}
+        </div>
+      </div>
+      <p className="muted text-xs flex gap-4 flex-wrap"><span><i className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: 'var(--paid)' }} />факт — подтверждённые платежи в день оплаты</span>
+        <span><i className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: 'var(--plan)' }} />план — задан по неделям, показан на первом дне недели (W1–W4)</span>
+        <span><i className="inline-block w-2.5 h-2.5 rounded-full align-middle mr-1" style={{ background: 'var(--debt)' }} />просрочено — невыполненный план прошедших недель</span></p>
+
+      <section className="panel p-4 space-y-3" aria-live="polite">
+        {!sel || !selDay ? <p className="muted">Выберите день в календаре, чтобы увидеть платежи и план недели.</p> : (<>
+          <div className="flex items-center justify-between gap-2 flex-wrap"><h2 className="font-semibold">{RU_DATE(sel)}{selWeek ? <span className="muted font-normal"> · неделя W{selWeek.week} ({selWeek.from}–{selWeek.to})</span> : null}</h2>
+            {manage && selWeek && <button className="btn" onClick={() => onAdd(selWeek.week)}>Добавить план на W{selWeek.week}</button>}</div>
+          <div><h3 className="text-sm font-semibold b-ok">Платежи в этот день</h3>
+            {selPays.length === 0 ? <p className="muted text-sm">Подтверждённых платежей нет.</p> : (
+              <table className="tbl"><tbody>{selPays.map((p: any) => <tr key={p.id}><td><Link className="underline" href={`/contracts/${p.contractId}`}>{p.number ?? '—'}</Link><div className="text-xs muted">{p.supplier}</div></td><td className="text-xs muted">{KIND[p.kind] ?? p.kind}</td><td className={`num ${Number(p.amount) < 0 ? 'b-err' : 'b-ok'}`}>{money(p.amount)} {p.currency}</td></tr>)}</tbody></table>)}</div>
+          <div><h3 className="text-sm font-semibold b-info">План недели W{selWeek?.week}</h3>
+            {selPlans.length === 0 ? <p className="muted text-sm">На эту неделю плана и платежей нет.</p> : (
+              <div className="overflow-x-auto"><table className="tbl"><thead><tr><th>Договор</th><th className="num">План</th><th className="num">Факт недели</th><th className="num">Остаток / просрочено</th>{manage && <th></th>}</tr></thead>
+                <tbody>{selPlans.map(({ r, c }: any) => <tr key={r.contract.id}>
+                  <td><Link className="underline" href={`/contracts/${r.contract.id}`}>{r.contract.number ?? '—'}</Link><div className="text-xs muted">{r.supplier.name}</div></td>
+                  <td className="num b-info">{c.planned ? `${money(c.planned)} ${r.currency}` : '—'}</td><td className="num b-ok">{num(c.actual) ? `${money(c.actual)} ${r.currency}` : '—'}</td>
+                  <td className={`num ${num(c.overdue) > 0 ? 'b-err' : num(c.remaining) > 0 ? 'b-warn' : 'muted'}`}>{num(c.overdue) > 0 ? `просрочено ${money(c.overdue)}` : num(c.remaining) > 0 ? money(c.remaining) : '—'}</td>
+                  {manage && <td><button className="btn" onClick={() => onCell(r, c)}>{c.planId ? 'Изменить' : 'Запланировать'}</button></td>}</tr>)}</tbody></table></div>)}</div>
+        </>)}
+      </section>
     </div>
   );
 }
@@ -186,11 +280,11 @@ function CellModal({ row, cell, year, month, manage, onClose, onDone }: any) {
   );
 }
 
-function AddModal({ year, month, contract: preset, onClose, onDone }: any) {
+function AddModal({ year, month, week, contract: preset, onClose, onDone }: any) {
   const [contract, setContract] = useState<any>(preset ?? null);
   const [search, setSearch] = useState('');
   const [found, setFound] = useState<any[]>([]);
-  const [w, setW] = useState({ year, month, week: 1 });
+  const [w, setW] = useState({ year, month, week: week ?? 1 });
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');

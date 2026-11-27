@@ -28,6 +28,19 @@ export interface Fact {
 export class AnalyticsService {
   constructor(private prisma: PrismaService) {}
 
+  /** Данные для «цветка»: даты подтверждённых оплат (без возвратов и отменённых сторно) и запуск системы (самый ранний договор). */
+  async plantInputs(): Promise<{ start: string | null; paymentDates: string[] }> {
+    const [first, reversals, pays] = await Promise.all([
+      this.prisma.contract.findFirst({ orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      this.prisma.payment.findMany({ where: { status: 'APPROVED', kind: 'REVERSAL', reversesPaymentId: { not: null } }, select: { reversesPaymentId: true } }),
+      this.prisma.payment.findMany({ where: { status: 'APPROVED', kind: 'PAYMENT' }, select: { id: true, paymentDate: true } }),
+    ]);
+    const reversed = new Set(reversals.map((r) => r.reversesPaymentId));
+    const dates = pays.filter((p) => !reversed.has(p.id)).map((p) => p.paymentDate.toISOString().slice(0, 10));
+    const startCandidates = [first?.createdAt.toISOString().slice(0, 10), ...dates].filter(Boolean) as string[];
+    return { start: startCandidates.length ? startCandidates.sort()[0]! : null, paymentDates: dates };
+  }
+
   /** Только ПОДТВЕРЖДЁННЫЕ курсы с датой действия. Выбор курса на дату — RatesBook. */
   async book(): Promise<RatesBook> {
     const rows = await this.prisma.fxRate.findMany({ where: { status: 'CONFIRMED', effectiveDate: { not: null } } });

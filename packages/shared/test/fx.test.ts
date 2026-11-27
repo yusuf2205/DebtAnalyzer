@@ -67,3 +67,18 @@ describe('Книга курсов: выбор курса на дату', () => {
     expect(b.asOf('2026-06-01').used.map((u) => u.currency)).toEqual(['USD']);
   });
 });
+
+describe('Эквивалент в UZS', () => {
+  const book = new RatesBook([rec('u', 'USD', '12085', '2026-10-19'), rec('e', 'EUR', '13470.5', '2026-10-19')]);
+  const set = book.asOf('2026-11-01');
+  it('UZS не требует курсов; остальные — прямое умножение на UZS за единицу', () => {
+    expect(book.toUzs('1000.50', 'UZS', book.asOf('2000-01-01')).uzs?.toFixed(2)).toBe('1000.50');
+    expect(book.toUzs('2', 'USD', set).uzs?.toFixed(2)).toBe('24170.00');
+    expect(book.toUzs('0.1', 'EUR', set).uzs?.toFixed(2)).toBe('1347.05');
+  });
+  it('нет курса — нет пересчёта и валюта попадает в список недостающих', () => {
+    expect(book.toUzs('5', 'RUB', set).uzs).toBeNull();
+    expect(book.missingUzs(set, ['UZS', 'USD', 'RUB', 'EUR'])).toEqual(['RUB']);
+    expect(book.missingUzs(book.asOf('2000-01-01'), ['UZS'])).toEqual([]);
+  });
+});

@@ -1,5 +1,5 @@
 import { toUsd, type CurrencyCode, type UzsRates } from './currency';
-import { type Dec, type DecInput, money } from './money';
+import { type Dec, type DecInput, dec, money } from './money';
 
 /** Подтверждённая запись курса: сколько UZS за 1 единицу валюты, действует с effectiveDate (yyyy-mm-dd). */
 export interface RateRecord { id: string; currency: CurrencyCode; uzsPerUnit: string; effectiveDate: string; source: string; confirmedAt?: string | null }
@@ -51,6 +51,21 @@ export class RatesBook {
     if (!have || set.uzsPerUnit.USD === undefined) return { usd: null, rate: null, rateDate: null };
     const c = toUsd(amount, currency, set.uzsPerUnit);
     return { usd: c.usd, rate: c.rateUsed.toString(), rateDate: currency === 'UZS' ? (set.used.find((u) => u.currency === 'USD')?.effectiveDate ?? null) : (set.used.find((u) => u.currency === currency)?.effectiveDate ?? null) };
+  }
+
+  /** Эквивалент в UZS (курсы заданы как UZS за 1 единицу, поэтому это прямое умножение) или uzs=null, если курса валюты на дату нет. */
+  toUzs(amount: DecInput, currency: CurrencyCode, set: RateSet): { uzs: Dec | null } {
+    if (currency === 'UZS') return { uzs: money(amount) };
+    const r = set.uzsPerUnit[currency];
+    if (r === undefined || dec(r).lte(0)) return { uzs: null };
+    return { uzs: money(dec(amount).times(dec(r))) };
+  }
+
+  /** Валюты из списка, которые нельзя пересчитать в UZS на эту дату (UZS пересчёта не требует). */
+  missingUzs(set: RateSet, currencies: Iterable<CurrencyCode>): CurrencyCode[] {
+    const out: CurrencyCode[] = [];
+    for (const c of new Set(currencies)) if (c !== 'UZS' && set.uzsPerUnit[c] === undefined) out.push(c);
+    return out;
   }
 
   /** Валюты из списка, которые нельзя пересчитать в USD на эту дату. */

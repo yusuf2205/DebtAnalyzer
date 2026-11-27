@@ -21,7 +21,11 @@ test.describe('Календарь платежей', () => {
     await dialog.getByRole('button', { name: 'Запланировать' }).click();
     await expect(dialog).toHaveCount(0);
 
-    // в сетке месяца: строка договора, план в W2
+    // календарь по умолчанию — сетка месяца: план недели виден на первом дне недели
+    await expect(mgr.page.getByRole('button', { name: /план недели/ }).first()).toBeVisible();
+    await expect(mgr.page.locator('.cal-cell')).not.toHaveCount(0);
+    // таблица: строка договора, план в W2
+    await mgr.page.getByRole('button', { name: 'Таблица' }).click();
     const row = mgr.page.getByRole('row', { name: /E2E-002/ });
     await expect(row).toContainText('1 000 000,00');
     let month = await a.get(`/calendar/month?year=${Y}&month=${M}&contractId=${c.id}`);

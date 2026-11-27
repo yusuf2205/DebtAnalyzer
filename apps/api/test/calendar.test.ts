@@ -146,6 +146,17 @@ describe('M5: календарь — план против факта', () => {
     await post(mgr, '/api/payments').send({ contractId: c.id, paymentDate: '2025-03-26', amount: '888', submit: true, idempotencyKey: randomUUID() });
   });
 
+  it('дни месяца: только подтверждённые платежи с подписанной суммой, по фильтру договора; нужен доступ к календарю', async () => {
+    const r = await viewer.agent.get(`/api/calendar/days?year=2025&month=3&contractId=${c.id}`);
+    expect(r.status).toBe(200);
+    const byDate = (d: string) => r.body.payments.filter((p: any) => p.date === d);
+    expect(byDate('2025-03-10')).toMatchObject([{ amount: '2500.00', kind: 'PAYMENT', currency: 'USD' }]);
+    expect(byDate('2025-03-04')).toMatchObject([{ kind: 'REFUND', amount: '-100.00' }]);
+    expect(byDate('2025-03-25')).toEqual([]); expect(byDate('2025-03-26')).toEqual([]); // черновик и ожидающий не показываются
+    expect(r.body.payments.every((p: any) => p.contractId === c.id)).toBe(true);
+    expect((await viewer.agent.get('/api/calendar/days?year=2025&month=13')).status).toBe(400);
+  });
+
   it('месяц: план, факт, остаток плана и «сверх плана» — по договору и неделе', async () => {
     const m = await month(`contractId=${c.id}`);
     const row = m.rows[0];

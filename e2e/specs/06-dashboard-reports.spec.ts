@@ -8,7 +8,7 @@ test.describe('Dashboard, курсы и отчёты', () => {
     const admin = await loginAs(browser, 'admin');
     const a = await api(admin.page);
     await admin.page.goto('/dashboard');
-    await expect(admin.page.getByText('Итоги в USD неполные')).toBeVisible();
+    await expect(admin.page.getByText('Итоги в UZS неполные')).toBeVisible();
     let d = await a.get('/dashboard');
     expect(d.rates.usdComplete).toBe(false);
     expect(d.kpi.totalUsd.debt).toBe('7000.00'); // только USD-договоры (6500 + 500): UZS без курса не включён — поэтому итог помечен неполным
@@ -23,13 +23,14 @@ test.describe('Dashboard, курсы и отчёты', () => {
     await expect(admin.page.getByRole('row', { name: /USD.*12\s?085/ })).toContainText('Подтверждён');
 
     await admin.page.goto('/dashboard');
-    await expect(admin.page.getByText('Итоги в USD неполные')).toHaveCount(0);
+    await expect(admin.page.getByText('Итоги в UZS неполные')).toHaveCount(0);
     d = await a.get('/dashboard');
     expect(d.rates).toMatchObject({ usdComplete: true, missing: [] });
     // USD: E2E-001 (6500) + E2E-003 (500); UZS: 12 085 000 / 12 085 = 1000  →  8000
     expect(d.kpi.totalUsd.debt).toBe('8000.00');
     expect(d.kpi.byCurrency.find((c: any) => c.currency === 'UZS').usd.debt).toBe('1000.00');
-    await expect(admin.page.getByText(/8\s000,00/).first()).toBeVisible();
+    expect(d.kpi.totalUzs.debt).toBe('96680000.00'); // 7000 USD × 12 085 + 12 085 000 UZS
+    await expect(admin.page.getByText(/96\s680\s000/).first()).toBeVisible(); // главная плитка — в UZS
     await expect(admin.page.locator('svg.recharts-surface').first()).toBeVisible(); // главные графики отрисованы
     await expect(admin.page.getByRole('heading', { name: 'Динамика задолженности' })).toBeHidden(); // второстепенное свёрнуто
     await admin.page.getByText('Подробный анализ').click();
