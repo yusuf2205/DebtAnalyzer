@@ -65,7 +65,7 @@ export function Th({ label, field, sort, dir, onSort, className }: { label: stri
 }
 
 export function Stat({ label, value, tone }: { label: string; value: ReactNode; tone?: string }) {
-  return <div className="panel p-3"><div className="muted text-xs">{label}</div><div className={`text-lg font-semibold ${tone ?? ''}`}>{value}</div></div>;
+  return <div className="panel p-4"><div className="muted text-xs font-medium">{label}</div><div className={`text-xl font-semibold mt-1 tracking-tight ${tone ?? ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</div></div>;
 }
 
 /** Скачивание файла из API (с cookie). Ссылка <a href> достаточна: GET, same-origin. */

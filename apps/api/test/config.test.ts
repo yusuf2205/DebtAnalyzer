@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config';
+import { checkPasswordPolicy } from '../src/auth/auth.service';
+
+describe('политика паролей', () => {
+  it('принимает пароль от 4 символов (любых), отклоняет короче', () => {
+    expect(() => checkPasswordPolicy('abc')).toThrow(/не менее 4/);
+    expect(() => checkPasswordPolicy('')).toThrow();
+    for (const ok of ['abcd', '1234', 'пароль', 'a b!']) expect(() => checkPasswordPolicy(ok)).not.toThrow();
+  });
+});
 
 describe('конфигурация окружения', () => {
   // Docker Compose передаёт незаданные переменные пустыми строками (GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-})

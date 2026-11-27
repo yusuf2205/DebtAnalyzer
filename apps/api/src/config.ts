@@ -8,7 +8,7 @@ const schema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().default(12),
   COOKIE_SECURE: z.enum(['true', 'false']).optional(),
   INITIAL_ADMIN_EMAIL: z.string().email().optional(),
-  INITIAL_ADMIN_PASSWORD: z.string().min(12).optional(),
+  INITIAL_ADMIN_PASSWORD: z.string().min(4).optional(),
   MAX_UPLOAD_MB: z.coerce.number().default(25),
   // Google OAuth (нужен только для закрытых таблиц; публичные ссылки работают без него)
   GOOGLE_CLIENT_ID: z.string().optional(),

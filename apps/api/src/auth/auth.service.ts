@@ -9,12 +9,11 @@ import { PrismaService } from '../prisma/prisma.service';
 
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
-export const MIN_PASSWORD = 12;
+export const MIN_PASSWORD = 4; // решение владельца системы; защита от подбора — блокировка после 5 неудач, лимит запросов и Cloudflare Access
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export function checkPasswordPolicy(pw: string) {
   if (pw.length < MIN_PASSWORD) throw new BadRequestException(`Пароль должен содержать не менее ${MIN_PASSWORD} символов`);
-  if (!/[a-zA-Zа-яА-Я]/.test(pw) || !/\d/.test(pw)) throw new BadRequestException('Пароль должен содержать буквы и цифры');
 }
 
 @Injectable()
