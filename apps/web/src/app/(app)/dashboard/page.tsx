@@ -3,20 +3,46 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, money } from '@/lib/api';
+import { Icon, type IconName } from '@/lib/icons';
+import { useSession } from '@/lib/session';
 import { CURRENCIES, SupplierPicker, compact, qs } from '@/lib/ui';
 
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const C = { paid: 'var(--paid)', debt: 'var(--debt)', plan: 'var(--plan)', pending: 'var(--pending)', muted: 'var(--muted)' };
-const PIE = ['#1d4ed8', '#15803d', '#c2570c', '#7c3aed'];
+const PIE = ['#4f7a55', '#c27a1a', '#6659c2', '#cb4a3d'];
 const num = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
+function greeting(name: string) {
+  const h = new Date().getHours();
+  return `${h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер'}, ${name.split(/\s+/)[0]}`;
+}
+
+/** Главное число плитки: итог в USD, а без курсов — суммы по валютам (валюты не смешиваются). */
+function Big({ usd, rows, complete }: { usd: string | null | undefined; rows: { cur: string; v: string }[]; complete?: boolean }) {
+  const nz = rows.filter((r) => num(r.v) !== 0);
+  if (usd !== null && usd !== undefined) return <div className="big">{money(usd)} <span className="text-sm font-normal muted" title={complete === false ? 'Не по всем валютам есть подтверждённый курс: в итог вошли только валюты с курсом' : undefined}>{complete === false ? 'USD*' : 'USD'}</span></div>;
+  if (!nz.length) return <div className="big muted">—</div>;
+  return <div className="space-y-0.5">{nz.slice(0, 3).map((r) => <div key={r.cur} className="big" style={{ fontSize: '1.25rem' }}>{money(r.v)} <span className="text-sm font-normal muted">{r.cur}</span></div>)}</div>;
+}
+
+function StatTile({ tone, title, icon, hint, children }: { tone: string; title: string; icon: IconName; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className={`stat ${tone}`}>
+      <div className="flex items-center gap-2.5"><span className="stat-icon"><Icon name={icon} size={17} /></span><span className="text-sm" title={hint}>{title}</span></div>
+      {children}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const { me } = useSession();
   const [f, setF] = useState({ currency: '', project: '', executor: '', status: 'ACTIVE', from: '', to: '', horizon: '30' });
   const [supplier, setSupplier] = useState<{ id: string; name: string } | null>(null);
   const [display, setDisplay] = useState('AUTO'); // AUTO = USD-эквивалент, если курсы есть
   const [d, setD] = useState<any>(null);
   const [error, setError] = useState('');
   const query = qs({ ...f, supplierId: supplier?.id });
+  const activeFilters = [f.currency, supplier, f.project, f.executor, f.from, f.to].filter(Boolean).length + (f.status !== 'ACTIVE' ? 1 : 0);
 
   useEffect(() => {
     const t = setTimeout(() => api('GET', `/dashboard?${query}`).then((r) => { setD(r); setError(''); }).catch((e) => setError(e.message)), f.project || f.executor ? 300 : 0);
@@ -26,36 +52,49 @@ export default function DashboardPage() {
   const present: string[] = useMemo(() => d?.kpi.byCurrency.map((c: any) => c.currency) ?? [], [d]);
   const mode = display === 'AUTO' ? (d?.rates.usdComplete && present.length ? 'USD_EQ' : (present.includes('USD') ? 'USD' : present[0] ?? 'USD')) : display;
   const unit = mode === 'USD_EQ' ? 'USD (экв.)' : mode;
+  const rows = (arr: any[], k: string) => arr.map((c: any) => ({ cur: c.currency, v: c[k] }));
+  const paidPct = d && d.rates.usdComplete && num(d.kpi.totalUsd.amount) > 0 ? Math.min(100, Math.round((num(d.kpi.totalUsd.paid) / num(d.kpi.totalUsd.amount)) * 100)) : null;
 
   return (
-    <div className="space-y-4 max-w-7xl">
-      <div><h1 className="text-xl font-semibold">Dashboard</h1><p className="muted">Задолженность перед поставщиками, оплаты и планы. Валюты не смешиваются: суммы показаны в исходных валютах и в эквиваленте USD по подтверждённым курсам.</p></div>
+    <div className="space-y-5 max-w-7xl">
+      <section className="hero">
+        <svg className="deco hidden sm:block" width="190" height="130" viewBox="0 0 190 130" fill="none" aria-hidden="true">
+          <path d="M95 130V58" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
+          <path d="M95 92C70 92 54 76 52 52c26 0 42 14 43 40z" fill="var(--accent)" opacity=".55" />
+          <path d="M95 74C118 72 134 56 136 34c-24 2-40 16-41 40z" fill="var(--accent)" opacity=".8" />
+          <path d="M95 58C84 46 84 28 95 14c11 14 11 32 0 44z" fill="var(--accent)" />
+          <rect x="68" y="108" width="54" height="22" rx="8" fill="var(--t-peach)" stroke="var(--border)" />
+        </svg>
+        <p className="muted text-sm">{new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <h1>{greeting(me?.name || 'коллега')}</h1>
+        <p className="muted mt-1 max-w-xl">Главное по задолженности перед поставщиками: сколько должны, сколько уже оплачено и что требует внимания.</p>
+        {d && <p className="text-sm mt-3"><b>{d.kpi.contracts}</b> <span className="muted">договоров</span> · <b>{d.kpi.suppliers}</b> <span className="muted">контрагентов</span></p>}
+      </section>
       {error && <p role="alert" className="b-err">{error}</p>}
 
-      <div className="flex gap-2 flex-wrap items-center">
-        <select className="input" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="">Все валюты</option>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
-        <SupplierPicker value={supplier} onChange={setSupplier} />
-        <input className="input w-36" placeholder="Проект" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} />
-        <input className="input w-36" placeholder="Исполнитель" value={f.executor} onChange={(e) => setF({ ...f, executor: e.target.value })} />
-        <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="ACTIVE">Активные договоры</option><option value="ARCHIVED">Архивные</option><option value="ALL">Все</option></select>
-        <label className="flex items-center gap-1 muted text-xs">период с<input className="input" type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></label>
-        <label className="flex items-center gap-1 muted text-xs">по<input className="input" type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
-        <label className="flex items-center gap-1 muted text-xs">предстоящие, дней<select className="input" value={f.horizon} onChange={(e) => setF({ ...f, horizon: e.target.value })}>{['7', '14', '30', '60', '90', '365'].map((x) => <option key={x}>{x}</option>)}</select></label>
-      </div>
+      <details>
+        <summary className="chip">Фильтры{activeFilters > 0 && <span className="badge b-ok" style={{ padding: '0 8px' }}>{activeFilters}</span>}</summary>
+        <div className="panel p-3 mt-2 flex gap-2 flex-wrap items-center">
+          <select className="input" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="">Все валюты</option>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
+          <SupplierPicker value={supplier} onChange={setSupplier} />
+          <input className="input w-36" placeholder="Проект" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} />
+          <input className="input w-36" placeholder="Исполнитель" value={f.executor} onChange={(e) => setF({ ...f, executor: e.target.value })} />
+          <select className="input" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="ACTIVE">Активные договоры</option><option value="ARCHIVED">Архивные</option><option value="ALL">Все</option></select>
+          <label className="flex items-center gap-1 muted text-xs">период с<input className="input" type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></label>
+          <label className="flex items-center gap-1 muted text-xs">по<input className="input" type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
+          <label className="flex items-center gap-1 muted text-xs">предстоящие, дней<select className="input" value={f.horizon} onChange={(e) => setF({ ...f, horizon: e.target.value })}>{['7', '14', '30', '60', '90', '365'].map((x) => <option key={x}>{x}</option>)}</select></label>
+        </div>
+      </details>
 
       {d?.rates.note && <div className="panel p-3" style={{ borderColor: 'var(--pending)' }}><b className="b-warn">Итоги в USD неполные.</b> {d.rates.note} <Link className="underline" href="/fx">Курсы валют →</Link></div>}
 
       {!d ? <p className="muted">Загрузка…</p> : (<>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card title="Договоров" value={d.kpi.contracts} />
-          <Card title="Контрагентов" value={d.kpi.suppliers} />
-          <Money complete={d.rates.usdComplete} title="Сумма договоров" tone="" usd={d.kpi.totalUsd.amount} rows={d.kpi.byCurrency.map((c: any) => ({ cur: c.currency, v: c.amount }))} />
-          <Money complete={d.rates.usdComplete} title="Оплачено" tone="b-ok" hint="остаток из файла + подтверждённые платежи" usd={d.kpi.totalUsd.paid} rows={d.kpi.byCurrency.map((c: any) => ({ cur: c.currency, v: c.paid }))} />
-          <Money complete={d.rates.usdComplete} title="Текущая задолженность" tone="b-err" usd={d.kpi.totalUsd.debt} rows={d.kpi.byCurrency.map((c: any) => ({ cur: c.currency, v: c.debt }))} />
-          <Money complete={d.rates.usdComplete} title="Плановые платежи" tone="b-info" hint="не уменьшают долг" usd={d.kpi.totalUsd.planned} rows={d.kpi.byCurrency.map((c: any) => ({ cur: c.currency, v: c.planned }))} />
-          <Money complete={d.rates.usdComplete} title="Просроченные обязательства" tone="b-err" hint="невыполненный план прошедших недель, не больше долга" usd={d.overdue.totalUsd} rows={d.overdue.byCurrency.map((c: any) => ({ cur: c.currency, v: c.amount }))} empty="нет" />
-          <Money complete={d.rates.usdComplete} title={`Предстоящие платежи (${d.upcoming.horizonDays} дн.)`} tone="b-info" usd={d.upcoming.totalUsd} rows={d.upcoming.byCurrency.map((c: any) => ({ cur: c.currency, v: c.amount }))} empty="нет" />
-          <Money complete={d.rates.usdComplete} title="Переплаты" tone="b-info" usd={d.overpaid.totalUsd} rows={d.overpaid.byCurrency.map((c: any) => ({ cur: c.currency, v: c.amount }))} empty="нет" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatTile tone="t-rose" title="Текущая задолженность" icon="payments"><Big complete={d.rates.usdComplete} usd={d.kpi.totalUsd.debt} rows={rows(d.kpi.byCurrency, 'debt')} /><span className="text-xs muted">Сколько ещё нужно оплатить</span></StatTile>
+          <StatTile tone="t-green" title="Оплачено" icon="check" hint="остаток из файла + подтверждённые платежи"><Big complete={d.rates.usdComplete} usd={d.kpi.totalUsd.paid} rows={rows(d.kpi.byCurrency, 'paid')} />
+            {paidPct !== null ? <><div className="bar" aria-hidden="true"><i style={{ width: `${paidPct}%` }} /></div><span className="text-xs muted">{paidPct}% от суммы договоров</span></> : <span className="text-xs muted">Подтверждённые платежи и остаток из файла</span>}</StatTile>
+          <StatTile tone="t-peach" title="Просрочено" icon="calendar" hint="невыполненный план прошедших недель, не больше долга"><Big complete={d.rates.usdComplete} usd={d.overdue.totalUsd} rows={rows(d.overdue.byCurrency, 'amount')} /><span className="text-xs muted">{d.overdue.items.length ? `Обязательств: ${d.overdue.items.length}` : 'Просроченных нет'}</span></StatTile>
+          <StatTile tone="t-lav" title={`Ближайшие платежи (${d.upcoming.horizonDays} дн.)`} icon="reports"><Big complete={d.rates.usdComplete} usd={d.upcoming.totalUsd} rows={rows(d.upcoming.byCurrency, 'amount')} /><span className="text-xs muted">{d.upcoming.items.length ? `По плану: ${d.upcoming.items.length}` : 'На этот период плана нет'}</span></StatTile>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap"><span className="muted text-sm">Графики показаны в:</span>
@@ -64,17 +103,29 @@ export default function DashboardPage() {
           </select><span className="muted text-xs">сейчас: {unit}</span></div>
 
         <div className="grid lg:grid-cols-2 gap-4">
-          <SuppliersAmountChart d={d} mode={mode} unit={unit} />
-          <DebtByCurrencyChart d={d} />
           <DebtBySupplierChart d={d} mode={mode} unit={unit} />
-          <PlanFactChart d={d} mode={mode} unit={unit} />
-          <DynamicsChart d={d} mode={mode} unit={unit} />
           <Lists d={d} />
         </div>
+        <PlanFactChart d={d} mode={mode} unit={unit} />
 
-        <details className="panel p-3"><summary className="cursor-pointer text-sm">Как считаются показатели</summary>
-          <ul className="text-sm list-disc pl-5 mt-2 muted">{d.notes.map((n: string, i: number) => <li key={i}>{n}</li>)}
-            <li>Использованные курсы (UZS за 1 ед.): {d.rates.used.length ? d.rates.used.map((u: any) => `${u.currency} ${u.uzsPerUnit} от ${u.effectiveDate}`).join('; ') : 'подтверждённых курсов нет'}</li></ul></details>
+        <details className="panel p-4">
+          <summary className="font-semibold">Подробный анализ</summary>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <Money complete={d.rates.usdComplete} title="Сумма договоров" tone="" usd={d.kpi.totalUsd.amount} rows={rows(d.kpi.byCurrency, 'amount')} />
+              <Money complete={d.rates.usdComplete} title="Плановые платежи" tone="b-info" hint="не уменьшают долг" usd={d.kpi.totalUsd.planned} rows={rows(d.kpi.byCurrency, 'planned')} />
+              <Money complete={d.rates.usdComplete} title="Переплаты" tone="b-info" usd={d.overpaid.totalUsd} rows={rows(d.overpaid.byCurrency, 'amount')} empty="нет" />
+            </div>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <SuppliersAmountChart d={d} mode={mode} unit={unit} />
+              <DebtByCurrencyChart d={d} />
+              <DynamicsChart d={d} mode={mode} unit={unit} />
+            </div>
+            <div><h3 className="text-sm font-semibold">Как считаются показатели</h3>
+              <ul className="text-sm list-disc pl-5 mt-2 muted">{d.notes.map((n: string, i: number) => <li key={i}>{n}</li>)}
+                <li>Использованные курсы (UZS за 1 ед.): {d.rates.used.length ? d.rates.used.map((u: any) => `${u.currency} ${u.uzsPerUnit} от ${u.effectiveDate}`).join('; ') : 'подтверждённых курсов нет'}</li></ul></div>
+          </div>
+        </details>
       </>)}
     </div>
   );
@@ -133,11 +184,11 @@ function DebtByCurrencyChart({ d }: any) {
 }
 
 function DebtBySupplierChart({ d, mode, unit }: any) {
-  const data = d.charts.suppliers.map((s: any) => ({ name: s.name.replace(/\s+/g, ' ').slice(0, 26), debt: pick(s, 'debt', mode) })).filter((x: any) => x.debt !== null && x.debt > 0).sort((a: any, b: any) => b.debt - a.debt).slice(0, 10);
+  const data = d.charts.suppliers.map((s: any) => ({ name: s.name.replace(/\s+/g, ' ').slice(0, 26), debt: pick(s, 'debt', mode) })).filter((x: any) => x.debt !== null && x.debt > 0).sort((a: any, b: any) => b.debt - a.debt).slice(0, 7);
   return (
-    <Panel title="Задолженность по контрагентам" note={`Топ-10, ${unit}.`}>
+    <Panel title="Задолженность по контрагентам" note={`Топ-7, ${unit}.`}>
       {data.length === 0 ? <p className="muted text-sm">Долгов в выбранной валюте нет.</p> : (
-        <ResponsiveContainer width="100%" height={320}><BarChart data={data} layout="vertical" margin={{ left: 16, right: 16 }}>
+        <ResponsiveContainer width="100%" height={300}><BarChart data={data} layout="vertical" margin={{ left: 16, right: 16 }}>
           <CartesianGrid stroke="var(--border)" horizontal={false} /><XAxis type="number" {...axis} tickFormatter={compact} /><YAxis type="category" dataKey="name" {...axis} width={150} />
           <Tooltip {...tt(unit)} /><Bar isAnimationActive={false} dataKey="debt" name="Долг" fill={C.debt} /></BarChart></ResponsiveContainer>)}
     </Panel>
@@ -179,8 +230,8 @@ function Lists({ d }: any) {
           <table className="tbl"><tbody>{d.overdue.items.slice(0, 5).map((x: any) => row(x))}{!d.overdue.items.length && <tr><td className="muted">Просроченных обязательств нет</td></tr>}</tbody></table></div>
         <div><h3 className="text-sm font-semibold b-info">Ближайшие платежи</h3>
           <table className="tbl"><tbody>{d.upcoming.items.slice(0, 5).map((x: any) => row(x, `${x.from.slice(5)}…${x.to.slice(5)}`))}{!d.upcoming.items.length && <tr><td className="muted">На ближайшие недели плана нет</td></tr>}</tbody></table></div>
-        <div><h3 className="text-sm font-semibold b-info">Переплаты</h3>
-          <table className="tbl"><tbody>{d.overpaid.items.slice(0, 5).map((x: any) => row(x))}{!d.overpaid.items.length && <tr><td className="muted">Переплат нет</td></tr>}</tbody></table></div>
+        {d.overpaid.items.length > 0 && <div><h3 className="text-sm font-semibold b-info">Переплаты</h3>
+          <table className="tbl"><tbody>{d.overpaid.items.slice(0, 5).map((x: any) => row(x))}</tbody></table></div>}
         <p className="text-xs"><Link className="underline" href="/calendar">Календарь платежей →</Link> · <Link className="underline" href="/reports">Отчёты →</Link></p>
       </div>
     </Panel>

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, OnApplicationBootstrap, UnauthorizedException } from '@nestjs/common';
 import { hash, verify } from '@node-rs/argon2';
 import { createHash, randomBytes } from 'node:crypto';
-import { NON_ASSIGNABLE_PERMISSIONS, PERMISSIONS, ROLE_PERMISSIONS, type Role } from '@pf/shared';
+import { NON_ASSIGNABLE_PERMISSIONS, PERMISSIONS, ROLE_PERMISSIONS, type Permission, type Role } from '@pf/shared';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../common/types';
 import { loadConfig } from '../config';
@@ -62,20 +62,27 @@ export class AuthService implements OnApplicationBootstrap {
       data: { userId: user.id, tokenHash: sha256(token), csrfToken, ip, userAgent: userAgent?.slice(0, 300), expiresAt: new Date(Date.now() + this.cfg.SESSION_TTL_HOURS * 3600_000) },
     });
     await this.audit.log({ userId: user.id, userEmail: email, action: 'auth.login', entity: 'Session', entityId: session.id, ip });
-    return { token, expiresAt: session.expiresAt, user: this.toAuthUser(user, session.id, csrfToken) };
+    return { token, expiresAt: session.expiresAt, user: await this.toAuthUser(user, session.id, csrfToken) };
   }
 
-  private toAuthUser(u: { id: string; email: string; name: string; role: string; customRole?: { id: string; name: string; permissions: string[] } | null; mustChangePassword: boolean }, sessionId: string, csrfToken: string): AuthUser {
+  /** Действующие права встроенной роли: переопределение из БД (если SUPER_ADMIN его задал) или стандартный набор. SUPER_ADMIN всегда имеет всё. */
+  async rolePermissions(role: Role): Promise<readonly Permission[]> {
+    if (role === 'SUPER_ADMIN') return ROLE_PERMISSIONS.SUPER_ADMIN;
+    const o = await this.prisma.roleOverride.findUnique({ where: { role } });
+    return o ? PERMISSIONS.filter((p) => o.permissions.includes(p) && !NON_ASSIGNABLE_PERMISSIONS.includes(p)) : ROLE_PERMISSIONS[role];
+  }
+
+  private async toAuthUser(u: { id: string; email: string; name: string; role: string; customRole?: { id: string; name: string; permissions: string[] } | null; mustChangePassword: boolean }, sessionId: string, csrfToken: string): Promise<AuthUser> {
     const role = u.role as Role;
     // Только права, известные системе: устаревшее/неизвестное право из БД не даёт доступа
-    const permissions = u.customRole ? PERMISSIONS.filter((p) => u.customRole!.permissions.includes(p) && !NON_ASSIGNABLE_PERMISSIONS.includes(p)) : ROLE_PERMISSIONS[role];
+    const permissions = u.customRole ? PERMISSIONS.filter((p) => u.customRole!.permissions.includes(p) && !NON_ASSIGNABLE_PERMISSIONS.includes(p)) : await this.rolePermissions(role);
     return { id: u.id, email: u.email, name: u.name, role, customRole: u.customRole ? { id: u.customRole.id, name: u.customRole.name } : null, permissions, mustChangePassword: u.mustChangePassword, sessionId, csrfToken };
   }
 
   async validate(token: string): Promise<AuthUser | null> {
     const s = await this.prisma.session.findUnique({ where: { tokenHash: sha256(token) }, include: { user: { include: { customRole: true } } } });
     if (!s || s.revokedAt || s.expiresAt < new Date() || !s.user.isActive) return null;
-    return this.toAuthUser(s.user, s.id, s.csrfToken);
+    return await this.toAuthUser(s.user, s.id, s.csrfToken);
   }
 
   async logout(user: AuthUser, ip: string | null) {

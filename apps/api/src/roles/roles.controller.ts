@@ -1,6 +1,6 @@
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PERMISSIONS, ROLES, ROLE_LABELS, ROLE_PERMISSIONS, validateRolePermissions } from '@pf/shared';
+import { PERMISSIONS, ROLES, ROLE_LABELS, ROLE_PERMISSIONS, validateRolePermissions, type Role } from '@pf/shared';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service';
 import { ClientIp, CurrentUser, RequirePermission } from '../auth/decorators';
@@ -26,8 +26,17 @@ export class RolesController {
   @RequirePermission('users.view')
   async list() {
     const custom = await this.prisma.customRole.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { users: true } } } });
+    const overrides = new Map((await this.prisma.roleOverride.findMany()).map((o) => [o.role, o]));
+    const counts = await this.prisma.user.groupBy({ by: ['role'], where: { customRoleId: null }, _count: true });
     return {
-      builtin: ROLES.map((key) => ({ key, label: ROLE_LABELS[key], permissions: ROLE_PERMISSIONS[key] })),
+      builtin: ROLES.map((key) => {
+        const o = key === 'SUPER_ADMIN' ? undefined : overrides.get(key);
+        return {
+          key, label: ROLE_LABELS[key], editable: key !== 'SUPER_ADMIN', customized: !!o,
+          permissions: o ? PERMISSIONS.filter((p) => o.permissions.includes(p)) : ROLE_PERMISSIONS[key],
+          defaults: ROLE_PERMISSIONS[key], userCount: counts.find((c) => c.role === key)?._count ?? 0,
+        };
+      }),
       custom: custom.map(({ _count, ...r }) => ({ ...r, userCount: _count.users })),
     };
   }
@@ -76,6 +85,41 @@ export class RolesController {
       meta: { ...diff(before.permissions, r.permissions), affectedUsers: before._count.users }, ip,
     });
     return { ...r, userCount: before._count.users };
+  }
+
+  /** Права встроенной роли (кроме SUPER_ADMIN, он всегда имеет всё — иначе можно потерять доступ). */
+  @Patch('builtin/:key')
+  @RequirePermission('roles.manage')
+  async updateBuiltin(@CurrentUser() actor: AuthUser, @Param('key') key: string, @Body() body: unknown, @ClientIp() ip: string | null) {
+    const role = this.builtinKey(key);
+    const d = parse(z.object({ permissions: bodySchema.shape.permissions }), body);
+    const errors = validateRolePermissions(d.permissions);
+    if (errors.length) throw new BadRequestException(errors.join('. '));
+    const permissions = PERMISSIONS.filter((p) => d.permissions.includes(p)) as string[];
+    const before = await this.prisma.roleOverride.findUnique({ where: { role } });
+    const beforePerms = before?.permissions ?? [...ROLE_PERMISSIONS[role]];
+    const r = await this.prisma.roleOverride.upsert({ where: { role }, create: { role, permissions, updatedById: actor.id }, update: { permissions, updatedById: actor.id } });
+    await this.audit.log({ userId: actor.id, userEmail: actor.email, action: 'role.builtin_update', entity: 'RoleOverride', entityId: role, before: { permissions: beforePerms }, after: { permissions: r.permissions }, meta: diff(beforePerms, r.permissions), ip });
+    return { key: role, permissions: r.permissions, customized: true };
+  }
+
+  /** Вернуть встроенной роли стандартные права. */
+  @Delete('builtin/:key')
+  @RequirePermission('roles.manage')
+  async resetBuiltin(@CurrentUser() actor: AuthUser, @Param('key') key: string, @ClientIp() ip: string | null) {
+    const role = this.builtinKey(key);
+    const before = await this.prisma.roleOverride.findUnique({ where: { role } });
+    if (before) {
+      await this.prisma.roleOverride.delete({ where: { role } });
+      await this.audit.log({ userId: actor.id, userEmail: actor.email, action: 'role.builtin_reset', entity: 'RoleOverride', entityId: role, before: { permissions: before.permissions }, after: { permissions: [...ROLE_PERMISSIONS[role]] }, meta: diff(before.permissions, [...ROLE_PERMISSIONS[role]]), ip });
+    }
+    return { key: role, permissions: ROLE_PERMISSIONS[role], customized: false };
+  }
+
+  private builtinKey(key: string): Role {
+    if (!(ROLES as readonly string[]).includes(key)) throw new NotFoundException('Роль не найдена');
+    if (key === 'SUPER_ADMIN') throw new BadRequestException('Права SUPER_ADMIN изменить нельзя: у него всегда есть всё, иначе можно потерять доступ к управлению');
+    return key as Role;
   }
 
   @Delete(':id')

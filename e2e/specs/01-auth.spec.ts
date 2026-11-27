@@ -20,7 +20,7 @@ test.describe('Вход и сессии', () => {
 
   test('успешный вход открывает Dashboard, выход закрывает доступ', async ({ browser }) => {
     const { ctx, page } = await loginAs(browser, 'manager');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Добр(ое утро|ый день|ый вечер)|Доброй ночи/ })).toBeVisible(); // приветствие Dashboard
     await expect(page.getByText(/e2e-mgr|MANAGER/).first()).toBeVisible();
     await page.getByRole('button', { name: 'Выйти' }).click();
     await expect(page).toHaveURL(/\/login/);

@@ -22,6 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/packages/shared packages/shared
 COPY --from=build /app/apps/api apps/api
+# Файлы с ACL (NAS) попадают в образ с правами 770 — пользователь node не смог бы их читать.
+RUN chmod -R a+rX /app
 WORKDIR /app/apps/api
 USER node
 EXPOSE 4000

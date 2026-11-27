@@ -4,7 +4,7 @@ import { PERMISSIONS, PERMISSION_GROUPS, PERMISSION_REQUIRES, withRequirements, 
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 
-type Builtin = { key: string; label: string; permissions: Permission[] };
+type Builtin = { key: string; label: string; permissions: Permission[]; defaults: Permission[]; editable: boolean; customized: boolean; userCount: number };
 type Custom = { id: string; name: string; description: string | null; permissions: Permission[]; userCount: number };
 type Sel = { kind: 'builtin'; key: string } | { kind: 'custom'; id: string } | { kind: 'new' };
 const ASSIGNABLE = PERMISSION_GROUPS.flatMap((g) => g.items.map((i) => i.perm));
@@ -36,7 +36,8 @@ export default function RolesPage() {
     setPerms(new Set(from?.permissions.filter((p) => ASSIGNABLE.includes(p)) ?? []));
   };
 
-  const readOnly = sel.kind === 'builtin';
+  const isBuiltin = sel.kind === 'builtin';
+  const readOnly = isBuiltin && !(current as Builtin | null)?.editable;
   const toggle = (p: Permission, on: boolean) => {
     if (readOnly) return;
     setNotice('');
@@ -53,10 +54,17 @@ export default function RolesPage() {
     setBusy(true); setError(''); setNotice('');
     try {
       const body = { name, description: description || null, permissions: PERMISSIONS.filter((p) => perms.has(p)) };
-      if (sel.kind === 'custom') { await api('PATCH', `/roles/${sel.id}`, body); setNotice('Сохранено. Новые права действуют сразу, повторный вход не нужен.'); }
+      if (sel.kind === 'builtin') { await api('PATCH', `/roles/builtin/${sel.key}`, { permissions: body.permissions }); setNotice('Сохранено. Новые права этой роли действуют сразу у всех её пользователей.'); }
+      else if (sel.kind === 'custom') { await api('PATCH', `/roles/${sel.id}`, body); setNotice('Сохранено. Новые права действуют сразу, повторный вход не нужен.'); }
       else { const r = await api<Custom>('POST', '/roles', body); setSel({ kind: 'custom', id: r.id }); setNotice('Роль создана. Теперь её можно назначать на странице «Пользователи».'); }
       await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  const resetBuiltin = async () => {
+    if (sel.kind !== 'builtin' || !confirm('Вернуть роли стандартные права?')) return;
+    setBusy(true); setError(''); setNotice('');
+    try { const r = await api<{ permissions: Permission[] }>('DELETE', `/roles/builtin/${sel.key}`); setPerms(new Set(r.permissions.filter((p) => ASSIGNABLE.includes(p)))); setNotice('Стандартные права возвращены.'); await load(); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const remove = async () => {
     if (sel.kind !== 'custom' || !confirm(`Удалить роль «${name}»?`)) return;
@@ -71,7 +79,7 @@ export default function RolesPage() {
   return (
     <div className="space-y-4 max-w-6xl">
       <div><h1 className="text-xl font-semibold">Роли и права</h1>
-        <p className="muted">Создайте роль, отметьте права и назначьте её пользователям. Изменения прав действуют сразу. Встроенные роли изменить нельзя, но их можно взять за основу.</p></div>
+        <p className="muted">Создайте роль, отметьте права и назначьте её пользователям. Изменения прав действуют сразу. Права встроенных ролей тоже можно менять (кроме Суперадмина), а стандартный набор вернуть кнопкой «Сбросить».</p></div>
       {error && <p role="alert" className="b-err">{error}</p>}
       {notice && <p role="status" className="b-ok">{notice}</p>}
 
@@ -89,7 +97,7 @@ export default function RolesPage() {
             <div className="muted text-xs font-medium uppercase tracking-wide mb-1 px-1">Встроенные</div>
             {data?.builtin.map((r) => (
               <button key={r.key} onClick={() => select({ kind: 'builtin', key: r.key }, { name: r.label, permissions: r.permissions })} className="nav-link w-full text-left" aria-current={sel.kind === 'builtin' && sel.key === r.key ? 'page' : undefined}>
-                <span className="truncate flex-1">{r.label}</span><span className="muted text-xs">{r.key === 'SUPER_ADMIN' ? 'все' : r.permissions.length}</span>
+                <span className="truncate flex-1">{r.label}</span><span className="muted text-xs">{r.key === 'SUPER_ADMIN' ? 'все' : r.customized ? `${r.permissions.length} ✎` : r.permissions.length}</span>
               </button>))}
           </div>
         </aside>
@@ -97,16 +105,16 @@ export default function RolesPage() {
         <section className="space-y-3">
           <div className="panel p-4 space-y-3">
             <div className="flex items-start justify-between gap-3 flex-wrap">
-              <h2 className="font-semibold">{sel.kind === 'new' ? 'Новая роль' : readOnly ? `Встроенная роль: ${current ? (current as Builtin).label : ''}` : 'Редактирование роли'}</h2>
-              {readOnly && <button className="btn" onClick={() => select({ kind: 'new' }, { name: `${(current as Builtin).label} (копия)`, permissions: [...perms] })}>Создать роль на основе этой</button>}
+              <h2 className="font-semibold">{sel.kind === 'new' ? 'Новая роль' : isBuiltin ? `Встроенная роль: ${current ? (current as Builtin).label : ''}` : 'Редактирование роли'}</h2>
+              {isBuiltin && <button className="btn" onClick={() => select({ kind: 'new' }, { name: `${(current as Builtin).label} (копия)`, permissions: [...perms] })}>Создать роль на основе этой</button>}
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="block space-y-1"><span className="muted text-xs font-medium">Название</span>
-                <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} maxLength={60} placeholder="Например, Бухгалтер" /></label>
+                <input className="input w-full" value={name} onChange={(e) => setName(e.target.value)} disabled={isBuiltin || readOnly} maxLength={60} placeholder="Например, Бухгалтер" /></label>
               <label className="block space-y-1"><span className="muted text-xs font-medium">Описание (необязательно)</span>
-                <input className="input w-full" value={description} onChange={(e) => setDescription(e.target.value)} disabled={readOnly} maxLength={200} placeholder="Для чего эта роль" /></label>
+                <input className="input w-full" value={description} onChange={(e) => setDescription(e.target.value)} disabled={isBuiltin || readOnly} maxLength={200} placeholder="Для чего эта роль" /></label>
             </div>
-            <p className="muted text-sm">Выбрано прав: <b>{[...perms].filter((p) => ASSIGNABLE.includes(p)).length}</b> из {total}{readOnly && ' · только просмотр'}</p>
+            <p className="muted text-sm">Выбрано прав: <b>{[...perms].filter((p) => ASSIGNABLE.includes(p)).length}</b> из {total}{readOnly && ' · только просмотр: у Суперадмина всегда есть всё, иначе можно потерять доступ к управлению'}{isBuiltin && !readOnly && (current as Builtin | null)?.customized && ' · права изменены относительно стандартных'}{isBuiltin && !readOnly && ` · пользователей: ${(current as Builtin | null)?.userCount ?? 0}`}</p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-3">
@@ -133,7 +141,8 @@ export default function RolesPage() {
 
           {!readOnly && (
             <div className="flex gap-2 items-center flex-wrap">
-              <button className="btn btn-primary" onClick={save} disabled={busy || name.trim().length < 2 || perms.size === 0}>{sel.kind === 'custom' ? 'Сохранить изменения' : 'Создать роль'}</button>
+              <button className="btn btn-primary" onClick={save} disabled={busy || name.trim().length < 2 || perms.size === 0}>{sel.kind === 'new' ? 'Создать роль' : 'Сохранить изменения'}</button>
+              {isBuiltin && <button className="btn" onClick={resetBuiltin} disabled={busy || !(current as Builtin | null)?.customized}>Сбросить к стандартным</button>}
               {sel.kind === 'custom' && <button className="btn" onClick={remove} disabled={busy}>Удалить роль</button>}
               {sel.kind === 'custom' && current && <span className="muted text-sm">Назначена пользователям: {(current as Custom).userCount}</span>}
             </div>)}

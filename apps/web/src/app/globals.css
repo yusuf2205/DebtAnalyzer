@@ -3,30 +3,34 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ───────── Токены ─────────
-   Смысловые цвета финансов сохраняют значение: зелёный — оплачено, красный — долг, оранжевый — ожидает, синий — план. */
+   Тёплая светлая тема: кремовый фон, шалфейно-зелёный акцент, пастельные плитки.
+   Смысловые цвета финансов сохраняют значение: зелёный — оплачено, красный — долг, янтарный — ожидает, сиреневый — план. */
 :root {
-  --bg: #f4f6fb; --panel: #ffffff; --panel-2: #f8f9fc; --border: #e4e8f0; --text: #111827; --muted: #667085;
-  --paid: #0f9d58; --debt: #d92d20; --pending: #d97706; --plan: #2563eb;
-  --accent: #4f46e5; --accent-hover: #4338ca; --accent-soft: #eef0ff; --on-accent: #ffffff;
-  --ring: rgba(79, 70, 229, .28);
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
-  --shadow-md: 0 8px 24px rgba(16, 24, 40, .10);
-  --radius: 14px; --radius-sm: 10px;
+  --bg: #f7f5ef; --panel: #fffefb; --panel-2: #f3f0e6; --border: #e8e4d8; --text: #27312b; --muted: #646b5f;
+  --paid: #3f8a52; --debt: #cb4a3d; --pending: #b87314; --plan: #6659c2;
+  --accent: #4f7a55; --accent-hover: #416848; --accent-soft: #e6eedf; --on-accent: #ffffff;
+  --t-green: #e6efdf; --t-rose: #f8e4df; --t-lav: #e8e5f6; --t-peach: #f8ead6;
+  --ring: rgba(79, 122, 85, .28);
+  --shadow-sm: 0 1px 2px rgba(60, 56, 36, .04), 0 2px 8px rgba(60, 56, 36, .04);
+  --shadow-md: 0 10px 30px rgba(60, 56, 36, .10);
+  --radius: 18px; --radius-sm: 12px;
 }
 .dark {
-  --bg: #0b0e14; --panel: #131822; --panel-2: #0f131b; --border: #232a38; --text: #e8ebf2; --muted: #8e99ad;
-  --paid: #34d399; --debt: #f87171; --pending: #fbbf24; --plan: #60a5fa;
-  --accent: #818cf8; --accent-hover: #a5b4fc; --accent-soft: #1b2040; --on-accent: #0b0e14;
-  --ring: rgba(129, 140, 248, .35);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-md: 0 8px 24px rgba(0, 0, 0, .5);
+  --bg: #0f1411; --panel: #171d18; --panel-2: #121713; --border: #262f27; --text: #e6ece4; --muted: #93a08f;
+  --paid: #6ccf8a; --debt: #f08a7e; --pending: #e8b050; --plan: #a99cf0;
+  --accent: #86b88c; --accent-hover: #a3cca8; --accent-soft: #1d2b1f; --on-accent: #0f1411;
+  --t-green: #1b2a1f; --t-rose: #2c1f1d; --t-lav: #221f33; --t-peach: #2c2619;
+  --ring: rgba(134, 184, 140, .35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-md: 0 10px 30px rgba(0, 0, 0, .5);
 }
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --bg: #0b0e14; --panel: #131822; --panel-2: #0f131b; --border: #232a38; --text: #e8ebf2; --muted: #8e99ad;
-    --paid: #34d399; --debt: #f87171; --pending: #fbbf24; --plan: #60a5fa;
-    --accent: #818cf8; --accent-hover: #a5b4fc; --accent-soft: #1b2040; --on-accent: #0b0e14;
-    --ring: rgba(129, 140, 248, .35);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-md: 0 8px 24px rgba(0, 0, 0, .5);
+  --bg: #0f1411; --panel: #171d18; --panel-2: #121713; --border: #262f27; --text: #e6ece4; --muted: #93a08f;
+  --paid: #6ccf8a; --debt: #f08a7e; --pending: #e8b050; --plan: #a99cf0;
+  --accent: #86b88c; --accent-hover: #a3cca8; --accent-soft: #1d2b1f; --on-accent: #0f1411;
+  --t-green: #1b2a1f; --t-rose: #2c1f1d; --t-lav: #221f33; --t-peach: #2c2619;
+  --ring: rgba(134, 184, 140, .35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow-md: 0 10px 30px rgba(0, 0, 0, .5);
   }
 }
 
@@ -102,10 +106,28 @@ select.input { padding-right: 28px; }
   color: var(--muted); font-weight: 550; text-decoration: none; transition: background .15s, color .15s;
 }
 .nav-link:hover { background: var(--panel-2); color: var(--text); }
-.nav-link[aria-current='page'] { background: var(--accent-soft); color: var(--accent); }
+.nav-link[aria-current='page'] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .nav-link svg { flex: none; }
-.brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--on-accent); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #22d3ee)); box-shadow: var(--shadow-sm); }
+.brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: var(--on-accent); background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #b9d39a)); box-shadow: var(--shadow-sm); }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13px; flex: none; }
+
+/* ───────── Баннер и плитки (Dashboard) ───────── */
+.hero {
+  position: relative; overflow: hidden; border-radius: 22px; padding: 26px 30px; border: 1px solid var(--border);
+  background: radial-gradient(420px 220px at 92% 0%, color-mix(in srgb, var(--t-peach) 90%, transparent), transparent 70%), linear-gradient(120deg, var(--t-green), var(--panel) 75%);
+}
+.hero h1 { font-size: 1.75rem; line-height: 1.2; font-weight: 650; }
+.hero .deco { position: absolute; right: 18px; bottom: 0; opacity: .9; pointer-events: none; }
+.stat { border-radius: var(--radius); padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.stat .big { font-size: 1.6rem; line-height: 1.2; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stat-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.t-green { background: var(--t-green); } .t-rose { background: var(--t-rose); } .t-lav { background: var(--t-lav); } .t-peach { background: var(--t-peach); }
+.bar { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 999px; background: var(--paid); }
+summary { cursor: pointer; }
+summary.chip, .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); font-weight: 550; list-style: none; }
+summary.chip::-webkit-details-marker { display: none; }
+summary.chip:hover, .chip:hover { background: var(--panel-2); }
 
 /* ───────── Мобильная раскладка ───────── */
 @media (max-width: 767px) {

@@ -409,3 +409,11 @@ model DebtSnapshot {
   @@unique([date, currency])
   @@index([date])
 }
+
+/// Переопределение прав встроенной роли (кроме SUPER_ADMIN). Нет записи — действуют стандартные права из кода.
+model RoleOverride {
+  role        String   @id
+  permissions String[]
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}

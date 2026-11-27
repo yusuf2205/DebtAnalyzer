@@ -176,3 +176,45 @@ describe('настраиваемые роли: защита от повышен�
     expect((rows[1]!.meta as any)).toMatchObject({ added: ['reports.view'], removed: [] });
   });
 });
+
+describe('встроенные роли: настройка прав', () => {
+  it('SUPER_ADMIN меняет права VIEWER — действует сразу; сброс возвращает стандартные; SUPER_ADMIN менять нельзя; другим — 403', async () => {
+    const v = await user(admin, `rl-viewer-${uniq()}@example.test`, { role: 'VIEWER' });
+    try {
+      expect((await get(v, '/api/contracts')).status).toBe(200);
+      const std = (await get(admin, '/api/roles')).body.builtin.find((b: any) => b.key === 'VIEWER');
+      expect(std).toMatchObject({ editable: true, customized: false });
+
+      expect((await patch(adm, '/api/roles/builtin/VIEWER').send({ permissions: ['dashboard.view'] })).status).toBe(403);
+      expect((await patch(admin, '/api/roles/builtin/SUPER_ADMIN').send({ permissions: ['dashboard.view'] })).status).toBe(400);
+      expect((await patch(admin, '/api/roles/builtin/NOPE').send({ permissions: ['dashboard.view'] })).status).toBe(404);
+      expect((await patch(admin, '/api/roles/builtin/VIEWER').send({ permissions: ['dashboard.view', 'roles.manage'] })).status).toBe(400);
+      expect((await patch(admin, '/api/roles/builtin/VIEWER').send({ permissions: [] })).status).toBe(400);
+
+      const r = await patch(admin, '/api/roles/builtin/VIEWER').send({ permissions: ['dashboard.view'] });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect((await get(v, '/api/contracts')).status).toBe(403); // сразу, без повторного входа
+      expect((await get(v, '/api/auth/me')).body.user.permissions).toEqual(['dashboard.view']);
+      const after = (await get(admin, '/api/roles')).body.builtin.find((b: any) => b.key === 'VIEWER');
+      expect(after).toMatchObject({ customized: true, permissions: ['dashboard.view'] });
+      expect(after.defaults.length).toBeGreaterThan(1);
+
+      expect((await del(admin, '/api/roles/builtin/VIEWER')).status).toBe(200);
+      expect((await get(v, '/api/contracts')).status).toBe(200);
+      const log = await prisma.auditLog.findMany({ where: { entity: 'RoleOverride', entityId: 'VIEWER' }, orderBy: { at: 'desc' }, take: 2 });
+      expect(log.map((l) => l.action).sort()).toEqual(['role.builtin_reset', 'role.builtin_update']);
+    } finally { await prisma.roleOverride.deleteMany({ where: { role: 'VIEWER' } }); }
+  });
+
+  it('права, добавленные встроенной роли сверх стандартных, ADMIN выдать не может, если их нет у него; БД не принимает SUPER_ADMIN и roles.manage', async () => {
+    try {
+      expect((await patch(admin, '/api/roles/builtin/MANAGER').send({ permissions: ['dashboard.view', 'payments.view', 'payments.approve'] })).status).toBe(200);
+      const email = `rl-esc-${uniq()}@example.test`;
+      expect((await post(adm, '/api/users').send({ email, name: 'x', role: 'MANAGER', password: PW })).status).toBe(403);
+      expect((await post(adm, '/api/users').send({ email, name: 'x', role: 'FINANCE', password: PW })).status).toBe(201); // стандартная роль — как раньше
+      expect((await post(admin, '/api/users').send({ email: `rl-esc2-${uniq()}@example.test`, name: 'x', role: 'MANAGER', password: PW })).status).toBe(201);
+    } finally { await prisma.roleOverride.deleteMany({ where: { role: 'MANAGER' } }); }
+    await expect(prisma.roleOverride.create({ data: { role: 'SUPER_ADMIN', permissions: ['dashboard.view'] } })).rejects.toThrow();
+    await expect(prisma.roleOverride.create({ data: { role: 'VIEWER', permissions: ['roles.manage'] } })).rejects.toThrow();
+  });
+});

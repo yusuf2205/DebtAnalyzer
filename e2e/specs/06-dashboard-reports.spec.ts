@@ -30,8 +30,10 @@ test.describe('Dashboard, курсы и отчёты', () => {
     expect(d.kpi.totalUsd.debt).toBe('8000.00');
     expect(d.kpi.byCurrency.find((c: any) => c.currency === 'UZS').usd.debt).toBe('1000.00');
     await expect(admin.page.getByText(/8\s000,00/).first()).toBeVisible();
+    await expect(admin.page.locator('svg.recharts-surface').first()).toBeVisible(); // главные графики отрисованы
+    await expect(admin.page.getByRole('heading', { name: 'Динамика задолженности' })).toBeHidden(); // второстепенное свёрнуто
+    await admin.page.getByText('Подробный анализ').click();
     await expect(admin.page.getByRole('heading', { name: 'Динамика задолженности' })).toBeVisible();
-    await expect(admin.page.locator('svg.recharts-surface').first()).toBeVisible(); // графики отрисованы
     await admin.ctx.close();
   });
 

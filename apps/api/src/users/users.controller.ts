@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, NotFoundException, Param, Patch, Post } from '@nestjs/common';
-import { ROLES, type Role } from '@pf/shared';
+import { ROLES, ROLE_PERMISSIONS, type Role } from '@pf/shared';
 import { z } from 'zod';
 import { AuditService } from '../audit/audit.service';
 import { AuthService, checkPasswordPolicy } from '../auth/auth.service';
@@ -38,6 +38,12 @@ export class UsersController {
     }
     if (!d.role) return null;
     assertCanTouch(actor, d.role);
+    if (actor.role !== 'SUPER_ADMIN') {
+      // Стандартные роли назначаются как раньше. Но SUPER_ADMIN мог добавить встроенной роли права сверх стандартных — их нельзя выдать, если их нет у вас.
+      const std = ROLE_PERMISSIONS[d.role] as readonly string[];
+      const extra = (await this.auth.rolePermissions(d.role)).filter((p) => !std.includes(p) && !(actor.permissions as readonly string[]).includes(p));
+      if (extra.length) throw new ForbiddenException('Нельзя назначить роль с правами, которых нет у вас');
+    }
     return { role: d.role, customRoleId: null as string | null, key: d.role };
   }
 
