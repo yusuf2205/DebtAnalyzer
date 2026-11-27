@@ -2,7 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, ForbiddenExce
 import type { Response } from 'express';
 import { Prisma, type Payment } from '@prisma/client';
 import { z } from 'zod';
-import { can, CURRENCIES, dec, money } from '@pf/shared';
+import { CURRENCIES, dec, money } from '@pf/shared';
 import { AuditService } from '../audit/audit.service';
 import { ClientIp, CurrentUser, RequirePermission } from '../auth/decorators';
 import type { AuthUser } from '../common/types';
@@ -263,7 +263,7 @@ export class PaymentsController {
     const { reason } = parse(z.object({ reason: z.string().trim().max(500).optional() }), body ?? {});
     const p = await this.one(id);
     if (p.status === 'APPROVED') throw new BadRequestException('Подтверждённый платёж отменить нельзя — сделайте сторно');
-    if (p.createdById !== u.id && !can(u.role, 'payments.approve')) throw new ForbiddenException('Отменить можно только свой платёж');
+    if (p.createdById !== u.id && !u.permissions.includes('payments.approve')) throw new ForbiddenException('Отменить можно только свой платёж');
     await this.transition(id, ['DRAFT', 'PENDING', 'REJECTED'], { status: 'CANCELLED' });
     await this.audit.log({ userId: u.id, userEmail: u.email, action: 'payment.cancel', entity: 'Payment', entityId: id, before: { status: p.status }, after: { status: 'CANCELLED' }, meta: { reason: reason ?? null }, ip });
     return (await this.enrich([await this.one(id)]))[0];

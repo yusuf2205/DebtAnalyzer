@@ -10,7 +10,7 @@ import { sessionCookieName, sessionCookieOptions } from './cookie';
 import { AllowPasswordChangePending, ClientIp, CurrentUser, Public } from './decorators';
 
 const cfg = loadConfig();
-const publicUser = (u: AuthUser) => ({ id: u.id, email: u.email, name: u.name, role: u.role, mustChangePassword: u.mustChangePassword, csrfToken: u.csrfToken });
+const publicUser = (u: AuthUser) => ({ id: u.id, email: u.email, name: u.name, role: u.role, customRole: u.customRole, permissions: u.permissions, mustChangePassword: u.mustChangePassword, csrfToken: u.csrfToken });
 
 @Controller('auth')
 export class AuthController {

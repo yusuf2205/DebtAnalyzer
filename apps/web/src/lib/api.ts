@@ -1,4 +1,4 @@
-export interface Me { id: string; email: string; name: string; role: 'SUPER_ADMIN' | 'ADMIN' | 'FINANCE' | 'MANAGER' | 'VIEWER'; mustChangePassword: boolean; csrfToken: string }
+export interface Me { id: string; email: string; name: string; role: 'SUPER_ADMIN' | 'ADMIN' | 'FINANCE' | 'MANAGER' | 'VIEWER'; customRole: { id: string; name: string } | null; permissions: string[]; mustChangePassword: boolean; csrfToken: string }
 
 let csrf = '';
 export const setCsrf = (t: string) => { csrf = t; };

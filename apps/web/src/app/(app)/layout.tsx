@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Permission } from '@pf/shared';
+import { ROLE_LABELS, type Permission } from '@pf/shared';
 import { Icon, type IconName } from '@/lib/icons';
 import { useSession } from '@/lib/session';
 
@@ -19,10 +19,10 @@ const NAV: { href: string; label: string; perm: Permission; icon: IconName }[] =
   { href: '/google', label: 'Google Sheets', perm: 'import.view', icon: 'sheet' },
   { href: '/fx', label: 'Курсы валют', perm: 'fx.view', icon: 'fx' },
   { href: '/users', label: 'Пользователи', perm: 'users.view', icon: 'users' },
+  { href: '/roles', label: 'Роли и права', perm: 'roles.manage', icon: 'shield' },
   { href: '/system', label: 'Система', perm: 'settings.manage', icon: 'system' },
 ];
 
-const ROLE_LABEL: Record<string, string> = { SUPER_ADMIN: 'Администратор', ADMIN: 'Администратор', MANAGER: 'Менеджер', FINANCE: 'Финансы', VIEWER: 'Наблюдатель' };
 const initials = (name: string) => name.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((s) => s[0]!.toUpperCase()).join('') || '?';
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -55,9 +55,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="md:mt-3 md:pt-3 md:border-t flex md:flex-col gap-2 items-center md:items-stretch ml-auto md:ml-0 shrink-0" style={{ borderColor: 'var(--border)' }}>
           <div className="hidden md:flex items-center gap-2.5 px-1">
             <span className="avatar" aria-hidden="true">{initials(me.name || me.email)}</span>
-            <span className="min-w-0 leading-tight"><span className="block text-sm font-semibold truncate">{me.name}</span><span className="block text-xs muted">{ROLE_LABEL[me.role] ?? me.role}</span></span>
+            <span className="min-w-0 leading-tight"><span className="block text-sm font-semibold truncate">{me.name}</span><span className="block text-xs muted">{me.customRole?.name ?? ROLE_LABELS[me.role] ?? me.role}</span></span>
           </div>
-          <span className="md:hidden text-xs muted whitespace-nowrap">{me.name} · {me.role}</span>
+          <span className="md:hidden text-xs muted whitespace-nowrap">{me.name} · {me.customRole?.name ?? me.role}</span>
           <Link href="/change-password" className="btn whitespace-nowrap"><Icon name="key" size={16} />Сменить пароль</Link>
           <button className="btn whitespace-nowrap" onClick={toggle}><Icon name={dark ? 'sun' : 'moon'} size={16} />{dark ? 'Светлая тема' : 'Тёмная тема'}</button>
           <button className="btn whitespace-nowrap" onClick={logout}><Icon name="logout" size={16} />Выйти</button>

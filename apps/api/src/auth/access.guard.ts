@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { timingSafeEqual } from 'node:crypto';
-import { can, type Permission } from '@pf/shared';
+import type { Permission } from '@pf/shared';
 import type { AuthedRequest } from '../common/types';
 import { AuthService } from './auth.service';
 import { sessionCookieName } from './cookie';
@@ -35,7 +35,7 @@ export class AccessGuard implements CanActivate {
       throw new ForbiddenException({ message: 'Необходимо сменить пароль', code: 'PASSWORD_CHANGE_REQUIRED' });
     }
     const perm = this.reflector.getAllAndOverride<Permission | undefined>(PERMISSION, handlers);
-    if (perm && !can(user.role, perm)) throw new ForbiddenException('Недостаточно прав для этого действия');
+    if (perm && !user.permissions.includes(perm)) throw new ForbiddenException('Недостаточно прав для этого действия');
     req.user = user;
     return true;
   }

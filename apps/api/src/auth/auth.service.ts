@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, OnApplicationBootstrap, UnauthorizedException } from '@nestjs/common';
 import { hash, verify } from '@node-rs/argon2';
 import { createHash, randomBytes } from 'node:crypto';
-import type { Role } from '@pf/shared';
+import { NON_ASSIGNABLE_PERMISSIONS, PERMISSIONS, ROLE_PERMISSIONS, type Role } from '@pf/shared';
 import { AuditService } from '../audit/audit.service';
 import type { AuthUser } from '../common/types';
 import { loadConfig } from '../config';
@@ -38,7 +38,7 @@ export class AuthService implements OnApplicationBootstrap {
 
   async login(emailRaw: string, password: string, ip: string | null, userAgent: string | null) {
     const email = emailRaw.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({ where: { email }, include: { customRole: true } });
     if (!user || !user.isActive) {
       this.dummyHash ??= hash('dummy-password-for-timing');
       await verify(await this.dummyHash, password).catch(() => false);
@@ -65,12 +65,15 @@ export class AuthService implements OnApplicationBootstrap {
     return { token, expiresAt: session.expiresAt, user: this.toAuthUser(user, session.id, csrfToken) };
   }
 
-  private toAuthUser(u: { id: string; email: string; name: string; role: string; mustChangePassword: boolean }, sessionId: string, csrfToken: string): AuthUser {
-    return { id: u.id, email: u.email, name: u.name, role: u.role as Role, mustChangePassword: u.mustChangePassword, sessionId, csrfToken };
+  private toAuthUser(u: { id: string; email: string; name: string; role: string; customRole?: { id: string; name: string; permissions: string[] } | null; mustChangePassword: boolean }, sessionId: string, csrfToken: string): AuthUser {
+    const role = u.role as Role;
+    // Только права, известные системе: устаревшее/неизвестное право из БД не даёт доступа
+    const permissions = u.customRole ? PERMISSIONS.filter((p) => u.customRole!.permissions.includes(p) && !NON_ASSIGNABLE_PERMISSIONS.includes(p)) : ROLE_PERMISSIONS[role];
+    return { id: u.id, email: u.email, name: u.name, role, customRole: u.customRole ? { id: u.customRole.id, name: u.customRole.name } : null, permissions, mustChangePassword: u.mustChangePassword, sessionId, csrfToken };
   }
 
   async validate(token: string): Promise<AuthUser | null> {
-    const s = await this.prisma.session.findUnique({ where: { tokenHash: sha256(token) }, include: { user: true } });
+    const s = await this.prisma.session.findUnique({ where: { tokenHash: sha256(token) }, include: { user: { include: { customRole: true } } } });
     if (!s || s.revokedAt || s.expiresAt < new Date() || !s.user.isActive) return null;
     return this.toAuthUser(s.user, s.id, s.csrfToken);
   }

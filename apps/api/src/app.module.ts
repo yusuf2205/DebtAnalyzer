@@ -21,11 +21,12 @@ import { HealthController } from './health/health.controller';
 import { ImportsController } from './imports/imports.controller';
 import { ImportsService } from './imports/imports.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { RolesController } from './roles/roles.controller';
 import { UsersController } from './users/users.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]), PrismaModule, AuditModule, AuthModule],
-  controllers: [HealthController, UsersController, ImportsController, FxController, SuppliersController, ContractsController, GoogleController, PaymentsController, ReconciliationController, CalendarController, DashboardController, ReportsController, SystemController],
+  controllers: [HealthController, UsersController, RolesController, ImportsController, FxController, SuppliersController, ContractsController, GoogleController, PaymentsController, ReconciliationController, CalendarController, DashboardController, ReportsController, SystemController],
   providers: [ImportsService, AnalyticsService, ReportsService, GoogleClient, GoogleSyncService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

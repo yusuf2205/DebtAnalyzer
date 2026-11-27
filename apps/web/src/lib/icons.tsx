@@ -1,4 +1,4 @@
-export type IconName = 'dashboard' | 'suppliers' | 'contracts' | 'payments' | 'calendar' | 'check' | 'reports' | 'import' | 'sheet' | 'fx' | 'users' | 'system' | 'key' | 'moon' | 'sun' | 'logout' | 'logo';
+export type IconName = 'dashboard' | 'suppliers' | 'contracts' | 'payments' | 'calendar' | 'check' | 'reports' | 'import' | 'sheet' | 'fx' | 'users' | 'system' | 'key' | 'shield' | 'moon' | 'sun' | 'logout' | 'logo';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M4 4h6v8H4z M14 4h6v5h-6z M14 13h6v7h-6z M4 16h6v4H4z',
@@ -14,6 +14,7 @@ const PATHS: Record<IconName, string> = {
   users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.9 M16 3.1a4 4 0 0 1 0 7.8',
   system: 'M22 12h-4l-3 9L9 3l-3 9H2',
   key: 'M15.5 7.5a4 4 0 1 1-5.2 5.2L3 20v-3l2-2h3v-3l2.3-2.3 M17 7h.01',
+  shield: 'M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6z M9 12l2 2 4-4',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
   sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 2v2 M12 20v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2 12h2 M20 12h2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
