@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CURRENCIES, dec, money, type CurrencyCode, type Dec, type RateSet, type RatesBook, type WeekBounds } from '@pf/shared';
 import { AnalyticsService, periodFilters, portfolioFilters, todayIso, type Fact } from '../analytics/analytics.service';
 import { aggregate, buildCells, overdueByCell, type Cell } from '../calendar/plan-fact';
+import { netPaidMap } from '../common/metrics';
 import { PrismaService } from '../prisma/prisma.service';
 import { CATALOG, type Column, type ReportResult, type Row } from './report-types';
 
@@ -208,6 +209,22 @@ export class ReportsService {
           .map(({ f, x }) => ({ supplier: f.supplier.name, number: f.number, currency: f.currency, debt: f2(f.debt), overdue: f2(x.sum), since: x.since, ...this.usd(ctx, f.currency, x.sum) }));
         res.totals = this.totals(ctx, res.rows, 'supplier', ['debt', 'overdue'], { usdKey: 'overdue' });
         res.warnings.push('Просрочено = невыполненный план прошедших недель, но не больше текущего долга по договору.');
+        break;
+      }
+      case 'supplier-statement': {
+        if (!q.supplierId) throw new BadRequestException('Выберите контрагента: акт сверки составляется по одному контрагенту');
+        const facts = await this.analytics.portfolio(q); currencies = new Set(facts.map((f) => f.currency));
+        const ids = facts.map((f) => f.id);
+        const extra = new Map((await this.prisma.contract.findMany({ where: { id: { in: ids } }, select: { id: true, contractDate: true, openingPaid: true } })).map((c) => [c.id, c]));
+        const net = await netPaidMap(this.prisma, ids);
+        res.columns = [C.text('number', 'Договор', 44), C.date('date', 'Дата договора'), C.text('project', 'Проект', 24), C.text('currency', 'Валюта', 8), C.money('amount', 'Сумма договора'),
+          C.money('opening', 'Оплачено по таблице'), C.money('newPaid', 'Платежи в приложении'), C.money('paid', 'Оплачено всего'), C.money('debt', 'Остаток долга'), C.money('overpaid', 'Переплата'), ...USD_COLS('Остаток, USD')];
+        res.rows = facts.sort((a, b) => a.currency.localeCompare(b.currency) || (extra.get(a.id)?.contractDate?.getTime() ?? 0) - (extra.get(b.id)?.contractDate?.getTime() ?? 0) || (a.number ?? '').localeCompare(b.number ?? '', 'ru'))
+          .map((f) => ({ number: f.number, date: extra.get(f.id)?.contractDate?.toISOString().slice(0, 10) ?? null, project: f.project, currency: f.currency, amount: f2(f.amount), opening: f2(dec(extra.get(f.id)?.openingPaid.toString() ?? 0)),
+            newPaid: f2(net.get(f.id) ? dec(net.get(f.id)!.toString()) : dec(0)), paid: f2(f.paid), debt: f2(f.debt), overpaid: f2(f.overpaid), ...this.usd(ctx, f.currency, f.debt) }));
+        res.totals = this.totals(ctx, res.rows, 'number', ['amount', 'opening', 'newPaid', 'paid', 'debt', 'overpaid'], { usdKey: 'debt' });
+        res.warnings.push('«Оплачено по таблице» — историческая оплата из реестра договоров; «Платежи в приложении» — подтверждённые платежи с чистой суммой (за вычетом возвратов и сторно). Остаток = сумма − оплачено всего.');
+        res.warnings.push('Подпись организации: ______________________    Подпись контрагента: ______________________    Дата: ____________');
         break;
       }
       case 'overpayments': {

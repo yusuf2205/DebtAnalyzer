@@ -6,6 +6,8 @@ import { AuthService } from './auth/auth.service';
 import { AnalyticsService } from './analytics/analytics.service';
 import { PrismaService } from './prisma/prisma.service';
 import { GoogleSyncService } from './google/google-sync.service';
+import { CbuService } from './fx/cbu.service';
+import { NotificationsService } from './notifications/notifications.service';
 
 /**
  * Worker: фоновые задачи на PostgreSQL (pg-boss) — без Redis.
@@ -19,7 +21,7 @@ async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL не задан');
   const ctx = await NestFactory.createApplicationContext(AppModule, { logger: ['warn', 'error', 'log'] });
-  const auth = ctx.get(AuthService), google = ctx.get(GoogleSyncService), analytics = ctx.get(AnalyticsService);
+  const auth = ctx.get(AuthService), google = ctx.get(GoogleSyncService), analytics = ctx.get(AnalyticsService), notifications = ctx.get(NotificationsService), cbu = ctx.get(CbuService);
 
   const boss = new PgBoss(url);
   boss.on('error', (e) => console.error('[worker] pg-boss error', e));
@@ -40,6 +42,22 @@ async function main() {
   await boss.createQueue('debt-snapshot');
   await boss.schedule('debt-snapshot', '10 0 * * *');
   await boss.work('debt-snapshot', async () => { const r = await analytics.captureSnapshot(); console.log(`[worker] debt-snapshot: создано ${r.created}`); });
+
+  // Курсы ЦБ: раз в сутки подтягиваем свежие курсы как «ожидают подтверждения» (применяет их только человек).
+  await boss.createQueue('fx-cbu');
+  await boss.schedule('fx-cbu', '40 0 * * *');
+  await boss.work('fx-cbu', async () => {
+    try { const r = await cbu.sync(); console.log(`[worker] fx-cbu: создано ${r.created.length}, пропущено ${r.skipped.length}`); }
+    catch (e) { console.error('[worker] fx-cbu', (e as Error).message); }
+  });
+
+  // Уведомления: каждые 10 минут проверяем, не пора ли отправить ежедневную сводку и нет ли проблем системы.
+  await boss.createQueue('notify-tick');
+  await boss.schedule('notify-tick', '*/10 * * * *');
+  await boss.work('notify-tick', async () => {
+    try { const r = await notifications.tick(); if (r.digest || r.alert) console.log(`[worker] notify-tick: сводка ${r.digest ? 'отправлена' : '—'}, тревога ${r.alert ? 'отправлена' : '—'}`); }
+    catch (e) { console.error('[worker] notify-tick', (e as Error).message); }
+  });
 
   // Пульс воркера: страница «Система» предупреждает, если фоновые задачи перестали выполняться.
   const prisma = ctx.get(PrismaService);

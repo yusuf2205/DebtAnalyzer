@@ -6,6 +6,8 @@ import { ROLE_LABELS, type Permission } from '@pf/shared';
 import { Icon, type IconName } from '@/lib/icons';
 import { useSession } from '@/lib/session';
 import { labelTables } from '@/lib/table-cards';
+import { GlobalSearch } from '@/lib/global-search';
+import { Logo } from '@/lib/logo';
 
 // Только реально работающие разделы.
 const NAV: { href: string; label: string; perm: Permission; icon: IconName }[] = [
@@ -21,6 +23,7 @@ const NAV: { href: string; label: string; perm: Permission; icon: IconName }[] =
   { href: '/fx', label: 'Курсы валют', perm: 'fx.view', icon: 'fx' },
   { href: '/users', label: 'Пользователи', perm: 'users.view', icon: 'users' },
   { href: '/roles', label: 'Роли и права', perm: 'roles.manage', icon: 'shield' },
+  { href: '/notifications', label: 'Уведомления', perm: 'settings.manage', icon: 'bell' },
   { href: '/system', label: 'Система', perm: 'settings.manage', icon: 'system' },
 ];
 
@@ -29,8 +32,8 @@ const initials = (name: string) => name.split(/[\s@._-]+/).filter(Boolean).slice
 function Brand() {
   return (
     <Link href="/dashboard" className="flex items-center gap-2.5 px-1 py-1 whitespace-nowrap" style={{ color: 'var(--text)', textDecoration: 'none' }}>
-      <span className="brand-mark"><Icon name="logo" size={18} /></span>
-      <span className="leading-tight"><span className="block font-semibold tracking-tight">Procurement</span><span className="block text-xs muted -mt-0.5">Finance</span></span>
+      <Logo size={34} variant="intro" />
+      <span className="leading-tight nl-label"><span className="block font-semibold tracking-tight">Procurement</span><span className="block text-xs muted -mt-0.5">Finance</span></span>
     </Link>
   );
 }
@@ -40,6 +43,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const path = usePathname();
   const [dark, setDark] = useState(false);
   const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const openRef = useRef<HTMLButtonElement>(null);
@@ -49,6 +53,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle('light', !dark && localStorage.getItem('pf-theme') === 'light');
   }, [dark]);
   const toggle = () => { const n = !dark; setDark(n); try { localStorage.setItem('pf-theme', n ? 'dark' : 'light'); } catch {} };
+
+  // Быстрый поиск: Ctrl/Cmd+K или «/» вне полей ввода.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') || (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey)) { e.preventDefault(); setSearching(true); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   // Выдвижное меню (телефон): закрывается при переходе, по Esc и по тапу на затемнение; фон не прокручивается; фокус возвращается на кнопку.
   useEffect(() => { setOpen(false); }, [path]);
@@ -75,23 +90,23 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return () => { mo.disconnect(); cancelAnimationFrame(raf); };
   }, [loading, me]);
 
-  if (loading) return <div className="p-8 muted">Загрузка…</div>;
+  if (loading) return <div className="min-h-screen grid place-items-center"><div className="text-center"><Logo size={56} variant="loop" title="Загрузка" /><p className="muted mt-3 text-sm">Загрузка…</p></div></div>;
   if (!me) return null;
   const roleName = me.customRole?.name ?? ROLE_LABELS[me.role] ?? me.role;
   const navLinks = NAV.filter((n) => can(n.perm)).map((n) => (
-    <Link key={n.href} href={n.href} className="nav-link" aria-current={path.startsWith(n.href) ? 'page' : undefined}>
-      <Icon name={n.icon} /><span>{n.label}</span>
+    <Link key={n.href} href={n.href} title={n.label} className="nav-link" aria-current={path.startsWith(n.href) ? 'page' : undefined}>
+      <Icon name={n.icon} /><span className="nl-label">{n.label}</span>
     </Link>
   ));
   const account = (
     <>
       <div className="flex items-center gap-2.5 px-1">
         <span className="avatar" aria-hidden="true">{initials(me.name || me.email)}</span>
-        <span className="min-w-0 leading-tight"><span className="block text-sm font-semibold truncate">{me.name}</span><span className="block text-xs muted">{roleName}</span></span>
+        <span className="min-w-0 leading-tight nl-label"><span className="block text-sm font-semibold truncate">{me.name}</span><span className="block text-xs muted">{roleName}</span></span>
       </div>
-      <Link href="/change-password" className="btn whitespace-nowrap"><Icon name="key" size={16} />Сменить пароль</Link>
-      <button className="btn whitespace-nowrap" onClick={toggle}><Icon name={dark ? 'sun' : 'moon'} size={16} />{dark ? 'Светлая тема' : 'Тёмная тема'}</button>
-      <button className="btn whitespace-nowrap" onClick={logout}><Icon name="logout" size={16} />Выйти</button>
+      <Link href="/change-password" title="Сменить пароль" className="btn whitespace-nowrap"><Icon name="key" size={16} /><span className="nl-label">Сменить пароль</span></Link>
+      <button className="btn whitespace-nowrap" title={dark ? 'Светлая тема' : 'Тёмная тема'} onClick={toggle}><Icon name={dark ? 'sun' : 'moon'} size={16} /><span className="nl-label">{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
+      <button className="btn whitespace-nowrap" title="Выйти" onClick={logout}><Icon name="logout" size={16} /><span className="nl-label">Выйти</span></button>
     </>
   );
   return (
@@ -99,7 +114,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       {/* Телефон: верхняя панель с кнопкой меню */}
       <header className="md:hidden sticky top-0 z-30 flex items-center justify-between gap-2 px-3 py-2 border-b" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
         <Brand />
+        <div className="flex gap-1.5">
+        <button className="btn" style={{ padding: '7px 10px' }} onClick={() => setSearching(true)} aria-label="Поиск"><Icon name="search" size={20} /></button>
         <button ref={openRef} className="btn" style={{ padding: '7px 10px' }} onClick={() => setOpen(true)} aria-label="Открыть меню" aria-expanded={open} aria-controls="mobile-menu"><Icon name="menu" size={20} /></button>
+        </div>
       </header>
 
       {open && (
@@ -113,11 +131,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>)}
 
       {/* Компьютер: постоянная боковая панель */}
-      <aside className="hidden md:flex md:w-64 md:h-screen md:sticky md:top-0 md:shrink-0 md:border-r p-4 flex-col gap-1 items-stretch overflow-y-auto" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div className="mb-4"><Brand /></div>
+      <aside className="rail hidden md:flex md:w-[76px] lg:w-64 md:h-screen md:sticky md:top-0 md:shrink-0 md:border-r p-4 flex-col gap-1 items-stretch overflow-y-auto" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        <div className="mb-3"><Brand /></div>
+        <button className="btn mb-3 justify-start muted font-normal" onClick={() => setSearching(true)} aria-label="Открыть поиск (Ctrl+K)"><Icon name="search" size={16} /><span className="flex-1 text-left nl-label">Поиск</span><kbd className="text-xs nl-label">Ctrl K</kbd></button>
         <nav className="flex flex-col gap-1 flex-1" aria-label="Разделы">{navLinks}</nav>
         <div className="mt-3 pt-3 border-t flex flex-col gap-2 items-stretch shrink-0" style={{ borderColor: 'var(--border)' }}>{account}</div>
       </aside>
+      {searching && <GlobalSearch nav={NAV} onClose={() => setSearching(false)} />}
       <main ref={mainRef} className="flex-1 p-4 md:p-8 min-w-0 max-w-[1600px]">{children}</main>
     </div>
   );

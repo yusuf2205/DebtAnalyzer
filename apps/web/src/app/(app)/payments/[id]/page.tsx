@@ -1,8 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, money } from '@/lib/api';
+import { HistoryList } from '@/lib/history';
 import { useSession } from '@/lib/session';
 import { PAY_KIND, PayBadge } from '@/lib/ui';
 
@@ -14,6 +15,7 @@ export default function PaymentPage() {
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState<any>(null);
   const [correct, setCorrect] = useState<any>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => api('GET', `/payments/${id}`).then(setP).catch((e) => setError(e.message)), [id]);
   useEffect(() => { load(); }, [load]);
@@ -99,8 +101,21 @@ export default function PaymentPage() {
       </section>
 
       <section className="panel p-4 space-y-2">
+        <div className="flex justify-between items-center gap-2 flex-wrap"><h2 className="font-semibold">Документы ({p.documents.length})</h2>
+          {(can('payments.create') || can('payments.approve')) && p.status !== 'CANCELLED' && <>
+            <input ref={fileRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const fd = new FormData(); fd.append('file', file); act(() => api('POST', `/payments/${id}/documents`, fd)); e.target.value = ''; }} />
+            <button className="btn" disabled={busy} onClick={() => fileRef.current?.click()}>Прикрепить документ</button></>}</div>
+        <p className="muted text-xs">Платёжное поручение или банковская выписка: подтверждение опирается на файл. PDF, PNG, JPG, DOCX, XLSX до 20 МБ.{p.status === 'APPROVED' && ' Документы подтверждённого платежа удалить нельзя.'}</p>
+        <ul className="text-sm space-y-1">{p.documents.map((d: any) => (
+          <li key={d.id} className="flex gap-2 items-center flex-wrap"><a className="underline" href={`/api/payments/${id}/documents/${d.id}`} download>{d.filename}</a>
+            <span className="muted text-xs">{(d.size / 1024).toFixed(0)} КБ · {new Date(d.createdAt).toLocaleDateString('ru-RU')} · sha256 {d.sha256.slice(0, 8)}…</span>
+            {p.status !== 'APPROVED' && (can('payments.create') || can('payments.approve')) && <button className="btn" onClick={() => confirm('Удалить документ? Запись останется в журнале.') && act(() => api('DELETE', `/payments/${id}/documents/${d.id}`))}>Удалить</button>}</li>))}
+          {!p.documents.length && <li className="muted">Документов нет.</li>}</ul>
+      </section>
+
+      <section className="panel p-4 space-y-2">
         <h2 className="font-semibold">Журнал операций</h2>
-        <ul className="text-sm space-y-1">{p.history.map((h: any) => <li key={h.id}><span className="muted">{new Date(h.at).toLocaleString('ru-RU')}</span> · {h.userEmail ?? 'система'} · <b>{h.action}</b>{h.meta?.reason && <> — {h.meta.reason}</>}</li>)}</ul>
+        <HistoryList items={p.history} />
       </section>
     </div>
   );

@@ -40,14 +40,14 @@ function StatTile({ tone, title, icon, hint, active = true, children }: { tone: 
 
 export default function DashboardPage() {
   const { me } = useSession();
-  const [f, setF] = useState({ currency: '', project: '', executor: '', status: 'ACTIVE', from: '', to: '', horizon: '30' });
+  const [f, setF] = useState({ currency: '', origin: '', project: '', executor: '', status: 'ACTIVE', from: '', to: '', horizon: '30' });
   const [supplier, setSupplier] = useState<{ id: string; name: string } | null>(null);
   const [display, setDisplay] = useState('AUTO'); // AUTO = USD-эквивалент, если курсы есть
   const [d, setD] = useState<any>(null);
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0); // телефон: какая из четырёх плиток показана
   const query = qs({ ...f, supplierId: supplier?.id });
-  const activeFilters = [f.currency, supplier, f.project, f.executor, f.from, f.to].filter(Boolean).length + (f.status !== 'ACTIVE' ? 1 : 0);
+  const activeFilters = [f.currency, f.origin, supplier, f.project, f.executor, f.from, f.to].filter(Boolean).length + (f.status !== 'ACTIVE' ? 1 : 0);
 
   useEffect(() => {
     const t = setTimeout(() => api('GET', `/dashboard?${query}`).then((r) => { setD(r); setError(''); }).catch((e) => setError(e.message)), f.project || f.executor ? 300 : 0);
@@ -80,6 +80,7 @@ export default function DashboardPage() {
         <summary className="chip">Фильтры{activeFilters > 0 && <span className="badge b-ok" style={{ padding: '0 8px' }}>{activeFilters}</span>}</summary>
         <div className="panel p-3 mt-2 flex gap-2 flex-wrap items-center">
           <select className="input" value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value })}><option value="">Все валюты</option>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
+          <select className="input" value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })} aria-label="Тип договора"><option value="">Любой тип</option><option value="LOCAL">Местные</option><option value="FOREIGN">Зарубежные</option><option value="UNSET">Тип не определён</option></select>
           <SupplierPicker value={supplier} onChange={setSupplier} />
           <input className="input w-36" placeholder="Проект" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} />
           <input className="input w-36" placeholder="Исполнитель" value={f.executor} onChange={(e) => setF({ ...f, executor: e.target.value })} />
@@ -120,6 +121,14 @@ export default function DashboardPage() {
         <details className="panel p-4">
           <summary className="font-semibold">Подробный анализ</summary>
           <div className="space-y-4 mt-4">
+            <div className="grid lg:grid-cols-2 gap-4">
+              <ForecastChart d={d} />
+              <MonthCompare d={d} />
+            </div>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <BreakdownList title="Долг по проектам" note="Топ-8, эквивалент в UZS" rows={d.breakdown.projects} />
+              <BreakdownList title="Долг по исполнителям" note="Топ-8, эквивалент в UZS" rows={d.breakdown.executors} />
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <Money complete={d.rates.uzsComplete} title="Сумма договоров" tone="" usd={d.kpi.totalUzs.amount} rows={rows(d.kpi.byCurrency, 'amount')} />
               <Money complete={d.rates.uzsComplete} title="Плановые платежи" tone="b-info" hint="не уменьшают долг" usd={d.kpi.totalUzs.planned} rows={rows(d.kpi.byCurrency, 'planned')} />
@@ -137,6 +146,64 @@ export default function DashboardPage() {
         </details>
       </>)}
     </div>
+  );
+}
+
+const ruShort = (iso: string) => `${iso.slice(8)}.${iso.slice(5, 7)}`;
+const pct = (now: number, prev: number) => (prev > 0 ? Math.round(((now - prev) / prev) * 100) : null);
+
+/** Прогноз платежей на 8 недель: невыполненный план в пределах долга, эквивалент в UZS. Это план, а не обещание платежей. */
+function ForecastChart({ d }: any) {
+  const weeks = d.forecast.weeks;
+  const complete = weeks.every((w: any) => w.uzs !== null);
+  const data = weeks.map((w: any) => ({ name: ruShort(w.from), value: w.uzs === null ? null : num(w.uzs) }));
+  const total = weeks.reduce((a: number, w: any) => a + (w.uzs === null ? 0 : num(w.uzs)), 0);
+  return (
+    <Panel title="Прогноз платежей на 8 недель" note={`По плану, в пределах долга. Всего: ${whole(total)} UZS${complete ? '' : ' (без валют без курса)'}.${d.forecast.overdueUzs ? ` Уже просрочено: ${whole(d.forecast.overdueUzs)} UZS.` : ''}`}>
+      {total === 0 ? <p className="muted text-sm">На ближайшие 8 недель плановых платежей нет.</p> : (
+        <ResponsiveContainer width="100%" height={240}><BarChart data={data} margin={{ left: 8, right: 8 }}>
+          <CartesianGrid stroke="var(--border)" vertical={false} /><XAxis dataKey="name" {...axis} /><YAxis {...axis} tickFormatter={compact} width={52} />
+          <Tooltip {...tt('UZS')} labelFormatter={(l: any) => `Неделя с ${l}`} /><Bar isAnimationActive={false} dataKey="value" name="План" fill={C.plan} /></BarChart></ResponsiveContainer>)}
+    </Panel>
+  );
+}
+
+/** Платежи этого месяца к прошлому и динамика долга за ~30 дней. */
+function MonthCompare({ d }: any) {
+  const now = new Date();
+  const cur = d.charts.months.find((m: any) => m.year === now.getFullYear() && m.month === now.getMonth() + 1);
+  const prev = d.charts.months.find((m: any) => { const p = new Date(now.getFullYear(), now.getMonth() - 1, 1); return m.year === p.getFullYear() && m.month === p.getMonth() + 1; });
+  const a = cur?.uzs ? num(cur.uzs.actual) : null, b = prev?.uzs ? num(prev.uzs.actual) : null;
+  const dp = a !== null && b !== null ? pct(a, b) : null;
+  const t = d.debtTrend;
+  const dt = t ? pct(num(t.nowUzs), num(t.prevUzs)) : null;
+  const Delta = ({ v, goodWhenUp }: { v: number | null; goodWhenUp: boolean }) => v === null ? null : <span className={v === 0 ? 'muted' : (v > 0) === goodWhenUp ? 'b-ok' : 'b-err'}>{v > 0 ? '▲' : v < 0 ? '▼' : '•'} {Math.abs(v)}%</span>;
+  return (
+    <Panel title="Месяц к месяцу" note="Подтверждённые платежи приложения и долг всего портфеля, UZS.">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="panel px-3 py-2"><div className="muted text-xs">Платежи за этот месяц</div><div className="font-semibold tabular-nums">{a === null ? '—' : whole(a)} <span className="text-xs muted">UZS</span></div>
+          <div className="text-xs muted">{b === null ? 'прошлый месяц: нет данных' : <>прошлый: {whole(b)} <Delta v={dp} goodWhenUp={true} /></>}</div></div>
+        <div className="panel px-3 py-2"><div className="muted text-xs">Долг за ~30 дней</div><div className="font-semibold tabular-nums">{t ? whole(t.nowUzs) : '—'} <span className="text-xs muted">UZS</span></div>
+          <div className="text-xs muted">{t ? <>{ruShort(t.from)}: {whole(t.prevUzs)} <Delta v={dt} goodWhenUp={false} /></> : 'история снимков ещё мала — нужен снимок месячной давности'}</div></div>
+      </div>
+      <p className="muted text-xs">Платежи сравниваются, только если по обоим месяцам есть курсы всех валют.</p>
+    </Panel>
+  );
+}
+
+/** Горизонтальные полосы: кто больше всего должен. Без графической библиотеки — читается и на телефоне. */
+function BreakdownList({ title, note, rows }: { title: string; note: string; rows: any[] }) {
+  const max = Math.max(1, ...rows.map((r) => num(r.uzs)));
+  return (
+    <Panel title={title} note={note}>
+      {rows.length === 0 ? <p className="muted text-sm">Долгов нет.</p> : (
+        <ul className="space-y-2">{rows.map((r) => (
+          <li key={r.name} className="text-sm">
+            <div className="flex justify-between gap-3"><span className="truncate" title={r.name}>{r.name}</span><span className="tabular-nums shrink-0">{num(r.uzs) ? whole(r.uzs) : '—'}{r.incomplete && <span title="Часть валют без курса — сумма неполная"> *</span>} <span className="muted text-xs">UZS</span></span></div>
+            <div className="bar" aria-hidden="true"><i style={{ width: `${(num(r.uzs) / max) * 100}%`, background: 'var(--debt)' }} /></div>
+            <div className="muted text-xs">договоров: {r.contracts} · {r.byCurrency.map((c: any) => `${money(c.amount)} ${c.currency}`).join(', ')}</div>
+          </li>))}</ul>)}
+    </Panel>
   );
 }
 

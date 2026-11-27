@@ -25,6 +25,20 @@ const schema = z.object({
   /** Каталог резервных копий, смонтированный в API только для чтения (страница «Система»). */
   BACKUP_DIR: z.string().optional(),
   LOGIN_RATE_LIMIT: z.coerce.number().default(10),
+  // Уведомления (необязательны): Telegram-бот и/или SMTP. Получатели и расписание — в настройках приложения («Уведомления»).
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_API_BASE: z.string().optional(), // только при NODE_ENV=test
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  SMTP_SECURE: z.enum(['true', 'false']).default('false'),
+  CBU_URL: z.string().optional(), // только при NODE_ENV=test (имитация ЦБ)
+  /** Часовой пояс расписания уведомлений. */
+  APP_TIMEZONE: z.string().default('Asia/Tashkent'),
+  /** Публичный адрес приложения (для ссылок в сообщениях). */
+  APP_BASE_URL: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof schema> & {

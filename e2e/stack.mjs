@@ -67,6 +67,7 @@ try {
   cpSync(join(webDir, DIST, 'standalone'), run, { recursive: true, dereference: true });
   mkdirSync(join(run, 'apps/web', DIST), { recursive: true });
   cpSync(join(webDir, DIST, 'static'), join(run, 'apps/web', DIST, 'static'), { recursive: true });
+  if (existsSync(join(webDir, 'public'))) cpSync(join(webDir, 'public'), join(run, 'apps/web/public'), { recursive: true }); // как COPY public в Dockerfile.web
   const web = spawn(process.execPath, ['apps/web/server.js'], { cwd: run, env: { ...env, PORT: String(WEB_PORT), HOSTNAME: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(web);
   web.stdout.on('data', () => {}); web.stderr.on('data', (d) => process.stderr.write(`[web] ${d}`));

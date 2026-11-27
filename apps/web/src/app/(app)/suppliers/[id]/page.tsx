@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api, money } from '@/lib/api';
+import { HistoryList } from '@/lib/history';
 import { useSession } from '@/lib/session';
 import { PAY_KIND, PayBadge, StateBadge, TotalsStrip } from '@/lib/ui';
 
@@ -28,7 +29,10 @@ export default function SupplierPage() {
           <h1 className="text-xl font-semibold">{s.name} {s.status === 'ARCHIVED' && <span className="badge b-mute">объединён</span>}</h1>
           <p className="muted">{s.taxId ? `ИНН ${s.taxId}` : 'ИНН не указан'}{s.mergedInto && <> · объединён в <Link className="underline" href={`/suppliers/${s.mergedInto.id}`}>{s.mergedInto.name}</Link></>}</p>
         </div>
+        <div className="flex gap-2 flex-wrap">
+        {can('reports.view') && <Link className="btn" href={`/reports?report=supplier-statement&supplierId=${id}&supplierName=${encodeURIComponent(s.name)}`}>Акт сверки</Link>}
         {manage && !edit && <button className="btn" onClick={() => setEdit({ name: s.name, taxId: s.taxId ?? '' })}>Изменить</button>}
+        </div>
       </div>
       {error && <p role="alert" className="b-err">{error}</p>}
       {edit && (
@@ -76,7 +80,7 @@ export default function SupplierPage() {
 
       <section className="panel p-4 space-y-2">
         <h2 className="font-semibold">Журнал изменений</h2>
-        <ul className="text-sm space-y-1">{s.history.map((h: any) => <li key={h.id}><span className="muted">{new Date(h.at).toLocaleString('ru-RU')}</span> · {h.userEmail ?? 'система'} · <b>{h.action}</b></li>)}{!s.history.length && <li className="muted">Записей нет</li>}</ul>
+        <HistoryList items={s.history} />
       </section>
     </div>
   );

@@ -1,4 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { z } from 'zod';
+import { parse } from '../common/zod';
+import { AuditService } from '../audit/audit.service';
+import { ClientIp, CurrentUser } from '../auth/decorators';
+import type { AuthUser } from '../common/types';
 import { readFile, readdir, stat, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RequirePermission } from '../auth/decorators';
@@ -14,7 +19,7 @@ const started = Date.now();
 
 @Controller('system')
 export class SystemController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService) {}
 
   /** Состояние системы для администратора: «зелёный» список проверок, которые стоит смотреть после каждого обновления. */
   @Get('status')
@@ -54,6 +59,20 @@ export class SystemController {
       else { const days = (Date.now() - new Date(r.at).getTime()) / (24 * HOUR); add('restore', 'Проверка восстановления', !r.ok ? 'error' : days > 14 ? 'warn' : 'ok', !r.ok ? `последняя проверка НЕУДАЧНА: ${r.detail ?? ''}` : `успешно ${Math.round(days)} дн. назад${r.detail ? ` (${r.detail})` : ''}`); }
     }
 
+    // Копия вне NAS: состояние пишет сервис offsite (rclone) после отправки и проверки размеров
+    if (cfg.BACKUP_DIR) {
+      let off: { at: string; ok: boolean; detail?: string } | null = null;
+      try { off = JSON.parse(await readFile(join(cfg.BACKUP_DIR, 'last-offsite-sync.json'), 'utf8')); } catch { /* не настроена */ }
+      if (!off) add('offsite', 'Копия вне NAS', 'warn', 'не настроена: при краже, пожаре или отказе NAS будут потеряны и данные, и копии. Включите сервис offsite (docs/RUNBOOK.md, deploy/rclone.conf.example)');
+      else { const h = (Date.now() - new Date(off.at).getTime()) / HOUR; add('offsite', 'Копия вне NAS', !off.ok ? 'error' : h > 36 ? 'warn' : 'ok', !off.ok ? `последняя отправка не удалась: ${off.detail ?? ''}` : h > 36 ? `последняя отправка ${Math.round(h)} ч назад — сервис offsite не работает?` : `отправка ${Math.round(h)} ч назад: ${off.detail ?? 'ok'}`); }
+    }
+    // Пробное восстановление на ДРУГОМ компьютере (раз в квартал): отметка вручную, система проверить это не может
+    const pc = await this.prisma.appSetting.findUnique({ where: { key: 'restoreOnOtherPc' } }).catch(() => null);
+    const pcAt = pc ? (pc.value as { at: string; byEmail?: string }) : null;
+    const pcDays = pcAt ? (Date.now() - new Date(pcAt.at).getTime()) / (24 * HOUR) : null;
+    add('restore-pc', 'Восстановление на другом компьютере', pcDays === null ? 'warn' : pcDays > 100 ? 'warn' : 'ok',
+      pcDays === null ? 'ещё не отмечалось: раз в квартал восстановите копию на другом компьютере и нажмите «Отметить выполненным»' : pcDays > 100 ? `последний раз ${Math.round(pcDays)} дн. назад (${pcAt!.byEmail ?? ''}) — пора повторить` : `выполнено ${Math.round(pcDays)} дн. назад (${pcAt!.byEmail ?? ''})`);
+
     // Диск
     try {
       const fs = await statfs(await stat(cfg.UPLOAD_DIR).then(() => cfg.UPLOAD_DIR, () => '.'));
@@ -90,6 +109,34 @@ export class SystemController {
       counters: { activeUsers: usersCount, activeSessions: sessions, openReconciliations: openRecon, pendingPayments: pendingPay, dbSize, migrations },
       backups: backup,
     };
+  }
+
+  /** Правила платежей (пока одно): требовать документ для подтверждения. */
+  @Get('policy')
+  @RequirePermission('settings.manage')
+  async policy() {
+    const v = (await this.prisma.appSetting.findUnique({ where: { key: 'paymentPolicy' } }))?.value as { requireDocument?: boolean } | undefined;
+    return { requireDocument: !!v?.requireDocument };
+  }
+
+  @Put('policy')
+  @RequirePermission('settings.manage')
+  async setPolicy(@CurrentUser() u: AuthUser, @Body() body: unknown, @ClientIp() ip: string | null) {
+    const v = parse(z.object({ requireDocument: z.boolean() }).strict(), body);
+    const before = await this.policy();
+    await this.prisma.appSetting.upsert({ where: { key: 'paymentPolicy' }, create: { key: 'paymentPolicy', value: v, updatedById: u.id }, update: { value: v, updatedById: u.id } });
+    await this.audit.log({ userId: u.id, userEmail: u.email, action: 'system.payment_policy', entity: 'AppSetting', entityId: 'paymentPolicy', before, after: v, ip });
+    return v;
+  }
+
+  /** Отметка: копия восстановлена на другом компьютере и данные проверены (квартальная проверка). */
+  @Post('mark-restore-pc')
+  @RequirePermission('settings.manage')
+  async markRestorePc(@CurrentUser() u: AuthUser, @ClientIp() ip: string | null) {
+    const value = { at: new Date().toISOString(), byEmail: u.email };
+    await this.prisma.appSetting.upsert({ where: { key: 'restoreOnOtherPc' }, create: { key: 'restoreOnOtherPc', value, updatedById: u.id }, update: { value, updatedById: u.id } });
+    await this.audit.log({ userId: u.id, userEmail: u.email, action: 'system.restore_pc_marked', entity: 'AppSetting', entityId: 'restoreOnOtherPc', after: value, ip });
+    return value;
   }
 
   private async backupInfo(dir?: string) {

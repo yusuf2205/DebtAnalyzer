@@ -1,7 +1,7 @@
 #!/bin/sh
 # Тесты скриптов развёртывания (backup.sh, restore-test.sh, preflight.sh) с заглушками pg_dump/psql.
 # Проверяют ЛОГИКУ скриптов (ротация, контрольные суммы, пути отказа). Работу настоящих pg_dump/pg_restore
-# проверяет только запуск на целевой системе: docker compose run --rm backup /restore-test.sh
+# проверяет только запуск на целевой системе: docker compose run --rm --entrypoint /restore-test.sh backup
 set -u
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 PASS=0; FAIL=0
@@ -99,6 +99,75 @@ echo "повреждённый" >> "$(ls -1t $R/pf-*.dump | head -1)"
 tn "повреждённая копия (контрольная сумма) — отказ" env BACKUP_PATH="$R" sh "$HERE/restore-test.sh"
 t "…с указанием на контрольную сумму" sh -c "grep -q 'контрольная сумма' $R/last-restore-test.json"
 
+echo "offsite-sync.sh"
+cat > "$W/bin/rclone" <<'SH'
+#!/bin/sh
+# заглушка: copy/check/delete; сбой по переменным окружения; журнал вызовов
+echo "$*" >> "${FAKE_RCLONE_LOG:-/dev/null}"
+case "$1" in
+  copy) [ "${FAKE_RCLONE_COPY_FAIL:-0}" = 1 ] && exit 1; exit 0;;
+  check) [ "${FAKE_RCLONE_CHECK_FAIL:-0}" = 1 ] && exit 1; exit 0;;
+  delete) exit 0;;
+esac
+exit 0
+SH
+chmod +x "$W/bin/rclone"
+O="$W/off"; mkdir -p "$O"; echo x > "$O/pf-20261127-000000.dump"; LOG="$W/rc.log"
+tn "без OFFSITE_REMOTE — отказ (не настроено)" env BACKUP_PATH="$O" sh "$HERE/offsite-sync.sh"
+t "копирование и проверка проходят, пишется состояние ok" env BACKUP_PATH="$O" OFFSITE_REMOTE=off:pf FAKE_RCLONE_LOG="$LOG" sh "$HERE/offsite-sync.sh"
+t "…last-offsite-sync.json: ok=true" sh -c "grep -q '\"ok\":true' $O/last-offsite-sync.json"
+t "…копируются только файлы копий (фильтр)" sh -c "grep -q 'include pf-\*.dump' $LOG && grep -q 'include uploads-' $LOG"
+t "…без OFFSITE_KEEP_DAYS ничего не удаляется" sh -c "! grep -q '^delete' $LOG"
+t "…с OFFSITE_KEEP_DAYS чистится только внешнее хранилище" sh -c "env BACKUP_PATH=$O OFFSITE_REMOTE=off:pf OFFSITE_KEEP_DAYS=60 FAKE_RCLONE_LOG=$LOG sh $HERE/offsite-sync.sh && grep -q '^delete off:pf --min-age 60d' $LOG"
+tn "ошибка копирования — отказ" env BACKUP_PATH="$O" OFFSITE_REMOTE=off:pf FAKE_RCLONE_COPY_FAIL=1 sh "$HERE/offsite-sync.sh"
+t "…состояние ok=false" sh -c "grep -q '\"ok\":false' $O/last-offsite-sync.json"
+tn "расхождение по размеру — отказ" env BACKUP_PATH="$O" OFFSITE_REMOTE=off:pf FAKE_RCLONE_CHECK_FAIL=1 sh "$HERE/offsite-sync.sh"
+O2="$W/off2"; mkdir -p "$O2"
+tn "нет копий для отправки — отказ" env BACKUP_PATH="$O2" OFFSITE_REMOTE=off:pf sh "$HERE/offsite-sync.sh"
+
+echo "rotate-secrets.sh"
+RS="$W/rs"; mkdir -p "$RS"; OLD=eyOLD000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+NEW=eyNEW000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+printf 'POSTGRES_PASSWORD=pgpass
+CLOUDFLARE_TUNNEL_TOKEN=%s
+BACKUP_DIR=/x
+' "$OLD" > "$RS/.env"; chmod 600 "$RS/.env"
+t "токен заменяется, остальные строки не тронуты" sh -c "printf '%s
+' $NEW | env ENV_FILE=$RS/.env NO_RESTART=1 sh $HERE/rotate-secrets.sh tunnel-token && grep -q '^CLOUDFLARE_TUNNEL_TOKEN=$NEW\$' $RS/.env && grep -q '^POSTGRES_PASSWORD=pgpass\$' $RS/.env && grep -q '^BACKUP_DIR=/x\$' $RS/.env"
+t "…делается копия прежнего .env (с правами 600 — на Linux)" sh -c "ls $RS/.env.bak-* >/dev/null && grep -q '^CLOUDFLARE_TUNNEL_TOKEN=eyOLD' $RS/.env.bak-* && case \"\$(uname -s)\" in MINGW*|MSYS*|CYGWIN*) true;; *) [ \"\$(stat -c %a $RS/.env.bak-*)\" = 600 ] && [ \"\$(stat -c %a $RS/.env)\" = 600 ];; esac"
+tn "токен не в формате Cloudflare — отказ, .env не меняется" sh -c "echo notatoken | env ENV_FILE=$RS/.env NO_RESTART=1 sh $HERE/rotate-secrets.sh tunnel-token"
+t "…прежний токен остаётся в .env" sh -c "grep -q '^CLOUDFLARE_TUNNEL_TOKEN=$NEW\$' $RS/.env"
+tn "неизвестная команда — отказ" sh "$HERE/rotate-secrets.sh" bogus
+
+echo "update.sh"
+UD="$W/udbin"; mkdir -p "$UD"
+cat > "$UD/docker" <<'SH'
+#!/bin/sh
+echo "$*" >> "$DOCKER_LOG"
+case "$1 $2" in
+  "compose build") n=$(cat "$DOCKER_CNT" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$DOCKER_CNT"; [ "$n" -le "${FAKE_BUILD_FAIL:-0}" ] && exit 1; exit 0;;
+  "compose ps") for a; do svc=$a; done
+    case "$svc" in api) echo "${FAKE_API_HEALTH:-healthy}|running";; web) echo "${FAKE_WEB_HEALTH:-healthy}|running";; worker) echo "|running";; esac; exit 0;;
+  "compose images") echo "sha256:fakeimage"; exit 0;;
+esac
+exit 0
+SH
+chmod +x "$UD/docker"
+UR="$W/urepo"; mkdir -p "$UR/deploy"; cp "$HERE/update.sh" "$UR/deploy/"; printf '#!/bin/sh\nexit 0\n' > "$UR/deploy/preflight.sh"; chmod +x "$UR/deploy/preflight.sh" "$UR/deploy/update.sh"
+runu() { rm -f "$W/d.log" "$W/d.cnt"; env PATH="$UD:$PATH" DOCKER_LOG="$W/d.log" DOCKER_CNT="$W/d.cnt" SKIP_PULL=1 BUILD_RETRY_SLEEP=0 HEALTH_SLEEP=0 HEALTH_TRIES=3 "$@" sh "$UR/deploy/update.sh"; }
+t "успешное обновление проходит" runu
+t "…копия делается через --entrypoint (entrypoint сервиса — бесконечный цикл)" grep -qx "compose run --rm --entrypoint /backup.sh backup" "$W/d.log"
+t "…сервисы перезапускаются по очереди: api, worker, web" sh -c "a=\$(grep -n '^compose up -d --no-deps api\$' $W/d.log | cut -d: -f1); w=\$(grep -n '^compose up -d --no-deps worker\$' $W/d.log | cut -d: -f1); x=\$(grep -n '^compose up -d --no-deps web\$' $W/d.log | cut -d: -f1); [ \"\$a\" -lt \"\$w\" ] && [ \"\$w\" -lt \"\$x\" ]"
+t "…имя проекта по умолчанию — procurement (имена томов)" sh -c "grep -q procurement $UR/deploy/update.sh && ! grep -q 'COMPOSE_PROJECT_NAME:-procurement-finance' $UR/deploy/update.sh"
+t "…пишется .deployed-version" test -s "$UR/.deployed-version"
+t "сбой сети при сборке: повтор, затем успех" runu FAKE_BUILD_FAIL=2 BUILD_RETRIES=3
+t "…сборка вызывалась трижды" sh -c "[ \"\$(grep -c '^compose build\$' $W/d.log)\" = 3 ]"
+tn "сборка не удаётся совсем — отказ" runu FAKE_BUILD_FAIL=9 BUILD_RETRIES=2
+t "…и ни один сервис при этом не перезапускался" sh -c "! grep -q 'up -d' $W/d.log"
+tn "api не стал здоровым — отказ" runu FAKE_API_HEALTH=unhealthy
+t "…выполнен откат: прежний образ возвращён и сервис поднят без сборки" sh -c "grep -qx 'tag pf-rollback-api procurement-api:latest' $W/d.log && grep -qx 'compose up -d --no-deps --no-build api' $W/d.log"
+t "…web после неудачи api не запускался на новой версии" sh -c "! grep -qx 'compose up -d --no-deps web' $W/d.log"
+
 echo "preflight.sh"
 P="$W/repo"; mkdir -p "$P/deploy"; cp "$HERE/preflight.sh" "$P/deploy/"; cp "$HERE/../docker-compose.yml" "$P/"; mkdir -p "$P/bk"
 good() { cat > "$P/.env" <<EOF
@@ -119,7 +188,7 @@ good; printf 'GOOGLE_CLIENT_ID=x\nGOOGLE_CLIENT_SECRET=y\nGOOGLE_REDIRECT_URI=ht
 good; sed -i "s#^BACKUP_DIR=.*#BACKUP_DIR=/proc/nope/bk#" "$P/.env"; tn "недоступный каталог копий — отказ" sh "$P/deploy/preflight.sh"
 
 echo "синтаксис"
-for f in backup.sh restore-test.sh preflight.sh update.sh; do t "sh -n $f" sh -n "$HERE/$f"; done
+for f in backup.sh restore-test.sh preflight.sh update.sh offsite-sync.sh rotate-secrets.sh; do t "sh -n $f" sh -n "$HERE/$f"; done
 
 echo; echo "Итог: пройдено $PASS, провалено $FAIL"
 [ "$FAIL" -eq 0 ]

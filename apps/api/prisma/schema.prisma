@@ -22,6 +22,12 @@ enum CurrencyCode {
   EUR
 }
 
+/// Происхождение договора: подтверждённое пользователем. Пусто — не определено (система только предлагает значение).
+enum ContractOrigin {
+  LOCAL
+  FOREIGN
+}
+
 enum EntityStatus {
   ACTIVE
   ARCHIVED
@@ -162,6 +168,7 @@ model Contract {
   sourcePaid   Decimal?     @db.Decimal(24, 2)
   executor     String?
   notes        String?
+  origin       ContractOrigin?
   status       EntityStatus @default(ACTIVE)
   /// Ключ идентичности строки источника (поставщик|договор|товар#n)
   identityKey  String       @unique
@@ -176,6 +183,7 @@ model Contract {
   @@index([supplierId])
   @@index([currency])
   @@index([project])
+  @@index([origin])
 }
 
 /// Плановые платежи. Никогда не участвуют в расчёте задолженности.
@@ -268,6 +276,24 @@ model ReconciliationTask {
 }
 
 /// Прикреплённые документы договора. Удаление мягкое (deletedAt): файл и запись остаются для аудита.
+/// Документ к платежу (платёжное поручение, выписка): подтверждение опирается на файл. Подтверждённого платежа документы не удаляются.
+model PaymentDocument {
+  id           String    @id @default(uuid())
+  paymentId    String
+  payment      Payment   @relation(fields: [paymentId], references: [id])
+  filename     String
+  mime         String
+  size         Int
+  sha256       String
+  path         String
+  uploadedById String
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+  deletedById  String?
+
+  @@index([paymentId])
+}
+
 model ContractDocument {
   id           String    @id @default(uuid())
   contractId   String
@@ -371,6 +397,7 @@ model Payment {
   /// true — платёж уже учтён в импортированном «Оплачено» (подтверждено сверкой): повторно не вычитается.
   reflectedInOpening Boolean       @default(false)
   reflectedTaskId    String?
+  documents          PaymentDocument[]
   reversesPaymentId  String?       @unique
   reversalReason     String?
   correctsPaymentId  String?

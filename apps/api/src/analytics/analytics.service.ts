@@ -1,3 +1,4 @@
+import { effectiveOrigin } from '@pf/shared';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -11,6 +12,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => !Number.is
 /** Общие фильтры портфеля договоров (дашборд и отчёты). */
 export const portfolioFilters = z.object({
   currency: z.enum(CURRENCIES).optional(),
+  origin: z.enum(['LOCAL', 'FOREIGN', 'UNSET']).optional(), // местный / зарубежный (по действующему значению)
   supplierId: z.string().uuid().optional(),
   project: z.string().trim().max(100).optional(),
   executor: z.string().trim().max(100).optional(),
@@ -60,20 +62,21 @@ export class AnalyticsService {
   }
 
   /** Текстовые фильтры — в приложении, а не в БД: регистронезависимый поиск по кириллице не должен зависеть от локали PostgreSQL. */
-  private textMatch<T extends { project: string | null; executor: string | null }>(f: PortfolioFilters, c: T) {
+  private textMatch<T extends { project: string | null; executor: string | null; origin?: 'LOCAL' | 'FOREIGN' | null; currency?: string; supplier?: { name: string; taxId?: string | null } }>(f: PortfolioFilters, c: T) {
     const lc = (x?: string | null) => (x ?? '').toLocaleLowerCase('ru');
-    return (!f.project || lc(c.project).includes(lc(f.project))) && (!f.executor || lc(c.executor).includes(lc(f.executor)));
+    const originOk = !f.origin || (() => { const v = effectiveOrigin({ origin: c.origin ?? null, currency: c.currency ?? '', supplierName: c.supplier?.name, supplierTaxId: c.supplier?.taxId }).value; return f.origin === 'UNSET' ? v === null : v === f.origin; })();
+    return originOk && (!f.project || lc(c.project).includes(lc(f.project))) && (!f.executor || lc(c.executor).includes(lc(f.executor)));
   }
 
   /** Идентификаторы договоров, подходящих под все фильтры. */
   async contractIds(f: PortfolioFilters): Promise<string[]> {
-    const rows = await this.prisma.contract.findMany({ where: this.where(f), select: { id: true, project: true, executor: true } });
+    const rows = await this.prisma.contract.findMany({ where: this.where(f), select: { id: true, project: true, executor: true, origin: true, currency: true, supplier: { select: { name: true, taxId: true } } } });
     return rows.filter((c) => this.textMatch(f, c)).map((c) => c.id);
   }
 
   /** Договоры с рассчитанными суммами: оплачено = начальный остаток + подтверждённые платежи; долг ≥ 0; переплата отдельно. */
   async portfolio(f: PortfolioFilters): Promise<Fact[]> {
-    const contracts = (await this.prisma.contract.findMany({ where: this.where(f), include: { supplier: { select: { id: true, name: true } } } })).filter((c) => this.textMatch(f, c));
+    const contracts = (await this.prisma.contract.findMany({ where: this.where(f), include: { supplier: { select: { id: true, name: true, taxId: true } } } })).filter((c) => this.textMatch(f, c));
     const ids = contracts.map((c) => c.id);
     const [net, plans] = await Promise.all([
       netPaidMap(this.prisma, ids),

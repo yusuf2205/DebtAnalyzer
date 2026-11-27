@@ -13,6 +13,13 @@ export function PayBadge({ status }: { status: string }) {
   const s = PAY_STATUS[status] ?? [status, 'b-mute'];
   return <span className={`badge ${s[1]}`}>{s[0]}</span>;
 }
+export const ORIGIN_TEXT: Record<string, string> = { LOCAL: 'Местный', FOREIGN: 'Зарубежный' };
+/** Тип договора: подтверждённое значение — бейдж; если не подтверждено, предложение системы — бледный текст со знаком «?». */
+export function OriginBadge({ c }: { c: { origin: string | null; originSuggested: string | null } }) {
+  if (c.origin) return <span className={`badge ${c.origin === 'LOCAL' ? 'b-ok' : 'b-info'}`}>{ORIGIN_TEXT[c.origin]}</span>;
+  if (c.originSuggested) return <span className="muted text-xs" title="Предложение системы: ещё не подтверждено">{ORIGIN_TEXT[c.originSuggested].toLowerCase()}?</span>;
+  return <span className="muted">—</span>;
+}
 export const CURRENCIES = ['USD', 'UZS', 'RUB', 'EUR'] as const;
 
 export function StateBadge({ state }: { state: string }) {

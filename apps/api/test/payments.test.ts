@@ -402,3 +402,55 @@ describe('M4: сверка с источником (без двойного уч
     expect((await viewer.agent.get('/api/reconciliation?status=HACK')).status).toBe(400);
   });
 });
+
+describe('M4: документы к платежам', () => {
+  const PDF = Buffer.from('%PDF-1.4\n% тестовая платёжка\n%%EOF');
+  const put = (s: S, u: string) => s.agent.put(u).set('x-csrf-token', s.csrf);
+  const upload = (s: S, id: string, buf: Buffer, name: string) => s.agent.post(`/api/payments/${id}/documents`).set('x-csrf-token', s.csrf).attach('file', buf, { filename: name });
+  const newPending = async () => { const c = await newContract({ amount: '5000' }); return (await pay(mgr, c.id, { amount: '100', submit: true })).body.id as string; };
+
+  it('загрузка, скачивание, счётчик в списке; неверный тип и подмена содержимого отклоняются; наблюдатель не может', async () => {
+    const id = await newPending();
+    const up = await upload(mgr, id, PDF, 'платёжка №5.pdf');
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    const card = (await viewer.agent.get(`/api/payments/${id}`)).body;
+    expect(card.documentCount).toBe(1);
+    expect(card.documents[0]).toMatchObject({ filename: 'платёжка №5.pdf', size: PDF.length });
+    const dl = await viewer.agent.get(`/api/payments/${id}/documents/${up.body.id}`);
+    expect(dl.status).toBe(200); expect(dl.headers['content-disposition']).toMatch(/attachment/); expect(Buffer.from(dl.body).toString().startsWith('%PDF')).toBe(true);
+    expect((await viewer.agent.get(`/api/payments?pageSize=500`)).body.items.find((p: any) => p.id === id).documentCount).toBe(1);
+    expect((await upload(mgr, id, Buffer.from('MZ binary'), 'run.exe')).status).toBe(400);
+    expect((await upload(mgr, id, Buffer.from('not a pdf'), 'fake.pdf')).status).toBe(400);
+    expect((await upload(viewer, id, PDF, 'x.pdf')).status).toBe(403);
+    expect((await prisma.auditLog.count({ where: { entityId: id, action: 'payment.document_add' } }))).toBe(1);
+  });
+
+  it('правило «подтверждение только с документом»: по умолчанию выключено; включённое блокирует подтверждение, пока файла нет', async () => {
+    const free = await newPending();
+    expect((await post(fin, `/api/payments/${free}/approve`).send({})).status).toBe(201); // политика выключена
+    expect((await put(mgr, '/api/system/policy').send({ requireDocument: true })).status).toBe(403);
+    expect((await put(admin, '/api/system/policy').send({ requireDocument: true })).status).toBe(200);
+    try {
+      const id = await newPending();
+      const blocked = await post(fin, `/api/payments/${id}/approve`).send({});
+      expect(blocked.status).toBe(400); expect(blocked.body.code).toBe('DOCUMENT_REQUIRED');
+      expect((await upload(mgr, id, PDF, 'выписка.pdf')).status).toBe(201);
+      expect((await post(fin, `/api/payments/${id}/approve`).send({})).status).toBe(201);
+    } finally { await put(admin, '/api/system/policy').send({ requireDocument: false }); }
+    expect((await prisma.auditLog.count({ where: { action: 'system.payment_policy' } }))).toBeGreaterThanOrEqual(2);
+  });
+
+  it('удаление: до подтверждения можно (с записью в аудит), у подтверждённого платежа — нельзя', async () => {
+    const id = await newPending();
+    const d1 = (await upload(mgr, id, PDF, 'a.pdf')).body.id as string;
+    expect((await mgr.agent.delete(`/api/payments/${id}/documents/${d1}`).set('x-csrf-token', mgr.csrf)).status).toBe(200);
+    expect((await viewer.agent.get(`/api/payments/${id}`)).body.documentCount).toBe(0);
+    expect((await viewer.agent.get(`/api/payments/${id}/documents/${d1}`)).status).toBe(404);
+    const d2 = (await upload(mgr, id, PDF, 'b.pdf')).body.id as string;
+    expect((await post(fin, `/api/payments/${id}/approve`).send({})).status).toBe(201);
+    const del = await mgr.agent.delete(`/api/payments/${id}/documents/${d2}`).set('x-csrf-token', mgr.csrf);
+    expect(del.status).toBe(400); expect(del.body.message).toMatch(/подтверждённого платежа удалить нельзя/);
+    expect((await upload(fin, id, PDF, 'c.pdf')).status).toBe(201); // выписку можно добавить и после подтверждения
+    expect((await prisma.auditLog.count({ where: { entityId: id, action: 'payment.document_remove' } }))).toBe(1);
+  });
+});

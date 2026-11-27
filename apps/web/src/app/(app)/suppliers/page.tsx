@@ -1,14 +1,16 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import { SavedViews } from '@/lib/list-tools';
+import { SupplierPeek } from '@/lib/peeks';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { CURRENCIES, ExportLink, PagerBar, PerCurrency, qs, usePageSize, Th, TotalsStrip } from '@/lib/ui';
 
 export default function SuppliersPage() {
   const { can } = useSession();
-  const router = useRouter();
+  const [peek, setPeek] = useState<string | null>(null);
+  const closePeek = useCallback(() => setPeek(null), []);
   const [tab, setTab] = useState<'list' | 'dups'>('list');
   const [f, setF] = useState({ q: '', status: 'ACTIVE', currency: '', executor: '', hasDebt: '', sort: 'name', dir: 'asc', page: 1 });
   const [data, setData] = useState<any>(null);
@@ -57,6 +59,7 @@ export default function SuppliersPage() {
           <select className="input" value={f.hasDebt} onChange={(e) => set({ hasDebt: e.target.value })}><option value="">Долг: любой</option><option value="true">Есть долг</option><option value="false">Нет долга</option></select>
         </div>
         {f.sort !== 'name' && f.sort !== 'contracts' && <p className="muted text-xs">Сортировка по суммам идёт по выбранной валюте ({f.currency || 'USD'}).</p>}
+        <SavedViews storeKey="suppliers" current={f} onApply={(v) => setF(v as typeof f)} />
         <TotalsStrip totals={data?.totals ?? []} />
         {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="контрагентов" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
         <div className="panel overflow-auto" style={{ maxHeight: '62vh' }}>
@@ -65,8 +68,8 @@ export default function SuppliersPage() {
             <Th label="Сумма" field="amount" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><Th label="Оплачено" field="paid" sort={f.sort} dir={f.dir} onSort={onSort} className="num" />
             <Th label="Долг" field="debt" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><Th label="План" field="planned" sort={f.sort} dir={f.dir} onSort={onSort} className="num" /><th>Исполнители</th></tr></thead>
             <tbody>{data?.items.map((s: any) => (
-              <tr key={s.id} className="row-link" onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) router.push(`/suppliers/${s.id}`); }}>
-                <td className="max-w-80"><Link className="underline" href={`/suppliers/${s.id}`}>{s.name}</Link>{s.status === 'ARCHIVED' && <span className="badge b-mute ml-2">объединён</span>}{s.aliasCount > 1 && <span className="muted text-xs ml-2">{s.aliasCount} написаний</span>}</td>
+              <tr key={s.id} className="row-link" aria-selected={peek === s.id} onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) setPeek(s.id); }}>
+                <td className="max-w-80"><Link className="underline" href={`/suppliers/${s.id}`} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); setPeek(s.id); }}>{s.name}</Link>{s.status === 'ARCHIVED' && <span className="badge b-mute ml-2">объединён</span>}{s.aliasCount > 1 && <span className="muted text-xs ml-2">{s.aliasCount} написаний</span>}</td>
                 <td className="num">{s.contracts}</td>
                 <td><PerCurrency items={s.byCurrency} field="amount" /></td><td><PerCurrency items={s.byCurrency} field="paid" tone="b-ok" /></td>
                 <td><PerCurrency items={s.byCurrency} field="debt" tone="b-err" /></td><td><PerCurrency items={s.byCurrency} field="planned" tone="b-info" /></td>
@@ -80,6 +83,7 @@ export default function SuppliersPage() {
       </>)}
 
       {tab === 'dups' && <Duplicates groups={dups} canMerge={can('suppliers.merge')} onDone={() => { loadDups(); load(); }} setError={setError} />}
+      {peek && tab === 'list' && <SupplierPeek id={peek} onClose={closePeek} />}
     </div>
   );
 }

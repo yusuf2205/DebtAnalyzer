@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, money } from '@/lib/api';
+import { HistoryList } from '@/lib/history';
 import { useSession } from '@/lib/session';
-import { CURRENCIES, PAY_KIND, PayBadge, Stat, StateBadge } from '@/lib/ui';
+import { CURRENCIES, OriginBadge, PAY_KIND, PayBadge, Stat, StateBadge } from '@/lib/ui';
 
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
@@ -22,11 +23,11 @@ export default function ContractPage() {
   if (!c) return <p className="muted">{error || 'Загрузка…'}</p>;
   const archived = c.status === 'ARCHIVED';
   const manage = can('contracts.manage') && !archived;
-  const startEdit = () => setEdit({ number: c.number ?? '', contractDate: c.contractDate ?? '', project: c.project ?? '', goods: c.goods ?? '', executor: c.executor ?? '', notes: c.notes ?? '', amount: c.amount, currency: c.currency, reason: '' });
+  const startEdit = () => setEdit({ number: c.number ?? '', contractDate: c.contractDate ?? '', project: c.project ?? '', goods: c.goods ?? '', executor: c.executor ?? '', notes: c.notes ?? '', origin: c.origin ?? '', amount: c.amount, currency: c.currency, reason: '' });
   const financialChanged = edit && (edit.amount !== c.amount || edit.currency !== c.currency);
 
   async function save() {
-    const body: any = { number: edit.number, contractDate: edit.contractDate || null, project: edit.project || null, goods: edit.goods || null, executor: edit.executor || null, notes: edit.notes || null };
+    const body: any = { number: edit.number, contractDate: edit.contractDate || null, project: edit.project || null, goods: edit.goods || null, executor: edit.executor || null, notes: edit.notes || null, origin: edit.origin || null };
     if (financialChanged) { body.amount = edit.amount; body.currency = edit.currency; body.reason = edit.reason; }
     await act(async () => { await api('PATCH', `/contracts/${id}`, body); setEdit(null); });
   }
@@ -57,7 +58,7 @@ export default function ContractPage() {
         <Stat label="Переплата" value={Number(c.overpaid) ? money(c.overpaid) : '—'} tone="b-info" />
         <Stat label="Плановые платежи" value={Number(c.planned) ? money(c.planned) : '—'} tone="b-info" />
       </div>
-      <div className="flex gap-3 items-center flex-wrap"><StateBadge state={c.state} />
+      <div className="flex gap-3 items-center flex-wrap"><StateBadge state={c.state} /><OriginBadge c={c} />
         <span className="muted text-sm">Долг = {money(c.debtDetails.contractAmount)} − {money(c.debtDetails.openingPaid)} (начальная оплата) − {money(c.debtDetails.newApprovedPaid)} (подтверждённые платежи приложения). План на долг не влияет.</span></div>
 
       {edit && (
@@ -67,6 +68,8 @@ export default function ContractPage() {
             {field('number', 'Номер договора')}{field('contractDate', 'Дата договора', { type: 'date' })}{field('project', 'Проект')}{field('goods', 'Товар')}{field('executor', 'Исполнитель')}
             {field('amount', 'Сумма', { inputMode: 'decimal' })}
             <label className="block space-y-1"><span className="muted text-xs">Валюта</span><select className="input w-full" value={edit.currency} onChange={(e) => setEdit({ ...edit, currency: e.target.value })}>{CURRENCIES.map((x) => <option key={x}>{x}</option>)}</select></label>
+            <label className="block space-y-1"><span className="muted text-xs">Тип договора{c.originSuggested && !c.origin ? ` (предложение: ${c.originSuggested === 'LOCAL' ? 'местный' : 'зарубежный'})` : ''}</span>
+              <select className="input w-full" value={edit.origin} onChange={(e) => setEdit({ ...edit, origin: e.target.value })}><option value="">Не определён</option><option value="LOCAL">Местный</option><option value="FOREIGN">Зарубежный</option></select></label>
             <label className="block space-y-1 sm:col-span-2"><span className="muted text-xs">Примечание</span><textarea className="input w-full" rows={3} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></label>
           </div>
           {financialChanged && <div className="panel p-3" style={{ borderColor: 'var(--pending)' }}>
@@ -118,7 +121,7 @@ export default function ContractPage() {
 
       <section className="panel p-4 space-y-2">
         <h2 className="font-semibold">Журнал изменений</h2>
-        <ul className="text-sm space-y-1">{c.history.map((h: any) => <li key={h.id}><span className="muted">{new Date(h.at).toLocaleString('ru-RU')}</span> · {h.userEmail ?? 'система'} · <b>{h.action}</b>{h.meta?.reason && <> — {h.meta.reason}</>}</li>)}{!c.history.length && <li className="muted">Записей нет</li>}</ul>
+        <HistoryList items={c.history} />
       </section>
     </div>
   );

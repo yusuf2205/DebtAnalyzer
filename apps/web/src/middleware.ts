@@ -14,6 +14,8 @@ export function middleware(req: NextRequest) {
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
+    "worker-src 'self'",   // служебный скрипт sw.js (запасная страница без связи)
+    "manifest-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

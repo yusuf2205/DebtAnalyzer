@@ -79,23 +79,28 @@ export class DashboardController {
     (overdueBlock as any).totalUzs = uzsSum(overdueBlock.byCurrency.map((r) => ({ currency: r.currency as CurrencyCode, v: dec(r.amount) })));
 
     // Предстоящие: невыполненный план не прошедших недель в горизонте, но не больше долга за вычетом просрочки.
-    const horizonEnd = addDays(today, q.horizon);
-    const upcomingItems: { f: (typeof facts)[number]; year: number; month: number; week: Week; amount: Dec; start: string; end: string }[] = [];
+    type Upcoming = { f: (typeof facts)[number]; year: number; month: number; week: Week; amount: Dec; start: string; end: string };
     const perContract = new Map<string, Cell[]>();
     for (const c of cells.values()) perContract.set(c.contractId, [...(perContract.get(c.contractId) ?? []), c]);
-    for (const [id, list] of perContract) {
-      const f = factById.get(id)!;
-      let allowance = f.debt.minus(overdueByContract.get(id) ?? dec(0));
-      for (const c of list.sort((a, b) => a.year - b.year || a.month - b.month || a.week - b.week)) {
-        const raw = c.plan.minus(c.fact);
-        if (isWeekPast(c.year, c.month, c.week, today, bounds) || raw.lte(0) || allowance.lte(0)) continue;
-        const start = weekStartIso(c.year, c.month, c.week, bounds);
-        if (start > horizonEnd) continue;
-        const take = raw.lt(allowance) ? raw : allowance;
-        upcomingItems.push({ f, year: c.year, month: c.month, week: c.week, amount: take, start, end: weekEndIso(c.year, c.month, c.week, bounds) });
-        allowance = allowance.minus(take);
+    const collectUpcoming = (horizonDays: number): Upcoming[] => {
+      const horizonEnd = addDays(today, horizonDays);
+      const out: Upcoming[] = [];
+      for (const [id, list] of perContract) {
+        const f = factById.get(id)!;
+        let allowance = f.debt.minus(overdueByContract.get(id) ?? dec(0));
+        for (const c of [...list].sort((a, b) => a.year - b.year || a.month - b.month || a.week - b.week)) {
+          const raw = c.plan.minus(c.fact);
+          if (isWeekPast(c.year, c.month, c.week, today, bounds) || raw.lte(0) || allowance.lte(0)) continue;
+          const start = weekStartIso(c.year, c.month, c.week, bounds);
+          if (start > horizonEnd) continue;
+          const take = raw.lt(allowance) ? raw : allowance;
+          out.push({ f, year: c.year, month: c.month, week: c.week, amount: take, start, end: weekEndIso(c.year, c.month, c.week, bounds) });
+          allowance = allowance.minus(take);
+        }
       }
-    }
+      return out;
+    };
+    const upcomingItems = collectUpcoming(q.horizon);
     const upcomingBlock = {
       horizonDays: q.horizon,
       byCurrency: currencies.map((cur) => ({ currency: cur, amount: money(upcomingItems.filter((x) => x.f.currency === cur).reduce((a, x) => a.plus(x.amount), dec(0))).toFixed(2) })).filter((r) => Number(r.amount) > 0),
@@ -181,8 +186,48 @@ export class DashboardController {
     const anyDebt = (await this.analytics.portfolio({ status: 'ACTIVE' })).some((f) => f.debt.gt(0));
     const plant = plantState({ today, start: pl.start ?? today, paymentDates: pl.paymentDates, hasDebt: anyDebt });
 
+    // ---- прогноз платежей по неделям (8 недель): невыполненный план в пределах долга; в UZS-эквиваленте по текущим курсам ----
+    const WEEKS = 8;
+    const fc = Array.from({ length: WEEKS }, (_, i) => ({ from: addDays(today, i * 7), to: addDays(today, i * 7 + 6), items: [] as Upcoming[] }));
+    for (const it of collectUpcoming(WEEKS * 7)) {
+      const days = Math.floor((new Date(it.start).getTime() - new Date(today).getTime()) / 86400_000);
+      fc[Math.min(WEEKS - 1, Math.max(0, Math.floor(days / 7)))]!.items.push(it);
+    }
+    const forecast = {
+      weeks: fc.map((w) => {
+        const curs = CURRENCIES.filter((c) => w.items.some((x) => x.f.currency === c));
+        const byCurrency = curs.map((cur) => ({ currency: cur, amount: money(w.items.filter((x) => x.f.currency === cur).reduce((a, x) => a.plus(x.amount), dec(0))).toFixed(2) }));
+        return { from: w.from, to: w.to, count: w.items.length, byCurrency, uzs: curs.some((c) => missingUzs.includes(c)) ? null : uzsSum(byCurrency.map((r) => ({ currency: r.currency as CurrencyCode, v: dec(r.amount) }))) ?? '0.00' };
+      }),
+      overdueUzs: (overdueBlock as any).totalUzs ?? null,
+    };
+
+    // ---- разрезы: долг по проектам и исполнителям (топ-8 в UZS-эквиваленте) ----
+    const breakdownBy = (keyOf: (f: (typeof facts)[number]) => string) => {
+      const m = new Map<string, { name: string; uzs: Dec; incomplete: boolean; contracts: number; byCurrency: Map<CurrencyCode, Dec> }>();
+      for (const f of facts) {
+        if (!f.debt.gt(0)) continue;
+        const name = keyOf(f).trim() || '(не указан)';
+        const k = name.toLocaleLowerCase('ru');
+        const row = m.get(k) ?? { name, uzs: dec(0), incomplete: false, contracts: 0, byCurrency: new Map() };
+        const u = uzs(f.debt, f.currency);
+        if (u) row.uzs = row.uzs.plus(u); else row.incomplete = true;
+        row.contracts++; row.byCurrency.set(f.currency, (row.byCurrency.get(f.currency) ?? dec(0)).plus(f.debt));
+        m.set(k, row);
+      }
+      return [...m.values()].sort((a, b) => b.uzs.comparedTo(a.uzs)).slice(0, 8)
+        .map((r) => ({ name: r.name, contracts: r.contracts, uzs: money(r.uzs).toFixed(2), incomplete: r.incomplete, byCurrency: [...r.byCurrency].map(([currency, v]) => ({ currency, amount: money(v).toFixed(2) })) }));
+    };
+    const breakdown = { projects: breakdownBy((f) => f.project ?? '(без проекта)'), executors: breakdownBy((f) => f.executor ?? '(не указан)') };
+
+    // ---- динамика долга за ~30 дней (по снимкам всего портфеля; нужен снимок не младше 30 дней) ----
+    const snapDays = dynamics.filter((x) => x.uzsComplete);
+    const lastSnap = snapDays.at(-1);
+    const prevSnap = lastSnap ? [...snapDays].reverse().find((x) => x.date <= addDays(lastSnap.date, -28)) : undefined;
+    const debtTrend = lastSnap && prevSnap ? { from: prevSnap.date, to: lastSnap.date, prevUzs: prevSnap.totalUzs, nowUzs: lastSnap.totalUzs } : null;
+
     return {
-      asOf: today, plant, filters: { currency: q.currency ?? null, supplierId: q.supplierId ?? null, project: q.project ?? null, executor: q.executor ?? null, status: q.status },
+      asOf: today, plant, forecast, breakdown, debtTrend, filters: { currency: q.currency ?? null, supplierId: q.supplierId ?? null, project: q.project ?? null, executor: q.executor ?? null, status: q.status },
       period: { from, to },
       rates: { used: set.used, missing, usdComplete: missing.length === 0, missingUzs, uzsComplete: missingUzs.length === 0, uzsNote: missingUzs.length ? `Нет подтверждённого курса для: ${missingUzs.join(', ')}. Подтвердите курсы в разделе «Курсы валют».` : null, note: missing.length ? `Нет подтверждённого курса для: ${missing.join(', ')}. Итоги в USD неполные — подтвердите курсы в разделе «Курсы валют».` : null },
       kpi, overdue: overdueBlock, upcoming: upcomingBlock, overpaid, charts: { suppliers, months, dynamics },

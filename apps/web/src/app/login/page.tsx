@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { api, setCsrf, type Me } from '@/lib/api';
-import { Icon } from '@/lib/icons';
+import { Logo } from '@/lib/logo';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function LoginPage() {
     <main className="min-h-screen grid place-items-center p-4" style={{ background: 'radial-gradient(900px 480px at 50% -10%, var(--accent-soft), transparent 70%), var(--bg)' }}>
       <form onSubmit={submit} className="panel w-full max-w-sm p-7 space-y-5" style={{ boxShadow: 'var(--shadow-md)' }}>
         <div className="flex items-center gap-3">
-          <span className="brand-mark" style={{ width: 40, height: 40, borderRadius: 12 }}><Icon name="logo" size={22} /></span>
+          <Logo size={48} variant="intro" />
           <div>
             <h1 className="text-lg font-semibold">Procurement Finance</h1>
             <p className="muted text-sm">Вход в систему</p>

@@ -34,6 +34,7 @@ test.describe('Платежи: создание → подтверждение �
     const fin = await loginAs(browser, 'finance');
     await fin.page.goto('/payments?status=PENDING');
     await fin.page.getByRole('row', { name: /E2E-001/ }).getByRole('link').first().click();
+    await fin.page.getByRole('dialog', { name: 'Краткая карточка платежа' }).getByRole('link', { name: 'Открыть полностью' }).click();
     await fin.page.getByRole('button', { name: 'Подтвердить', exact: true }).click();
     await expect(fin.page.getByText('Подтверждён').first()).toBeVisible();
     const after = await (await api(fin.page)).get(`/contracts/${id}`);

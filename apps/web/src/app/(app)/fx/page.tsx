@@ -19,6 +19,25 @@ export default function FxPage() {
   const act = async (fn: () => Promise<any>, ok?: string) => { setError(''); setNotice(''); try { await fn(); await load(); if (ok) setNotice(ok); } catch (e) { setError((e as Error).message); } };
   const askDate = (r: any) => (r.effectiveDate ? undefined : (prompt('У курса нет даты. Укажите дату действия (ГГГГ-ММ-ДД):') ?? null));
   const manage = can('fx.manage');
+  const pendingAll = (rates ?? []).filter((r) => r.status === 'PENDING_CONFIRMATION');
+  const pendingDated = pendingAll.filter((r) => r.effectiveDate);
+  async function fetchCbu() {
+    setError(''); setNotice('');
+    try {
+      const r = await api<{ created: { currency: string; uzsPerUnit: string; effectiveDate: string }[]; skipped: { currency: string; reason: string }[] }>('POST', '/fx/fetch-cbu');
+      setNotice(r.created.length ? `Получено курсов ЦБ: ${r.created.map((x) => `${x.currency} ${money(x.uzsPerUnit)} на ${x.effectiveDate}`).join('; ')}. Они ждут вашего подтверждения.` : `Новых курсов нет (${r.skipped.map((x) => `${x.currency}: ${x.reason}`).join('; ')}).`);
+      await load();
+    } catch (e) { setError((e as Error).message); }
+  }
+  async function confirmAll() {
+    const list = pendingDated.map((r) => `${r.currency} ${money(r.uzsPerUnit)} UZS на ${r.effectiveDate.slice(0, 10)}`).join(String.fromCharCode(10));
+    if (!confirm(`Подтвердить ${pendingDated.length} курсов? После этого они начнут применяться в расчётах (итоги в UZS).${String.fromCharCode(10, 10)}${list}`)) return;
+    setError(''); setNotice('');
+    let ok = 0;
+    try { for (const r of pendingDated) { await api('POST', `/fx/rates/${r.id}/confirm`, {}); ok++; } setNotice(`Подтверждено курсов: ${ok}.`); }
+    catch (e) { setError(`Подтверждено ${ok} из ${pendingDated.length}; остановилось на ошибке: ${(e as Error).message}`); }
+    await load();
+  }
 
   // Действующий курс валюты — подтверждённый с самой поздней датой не позже сегодня (так же выбирает расчёт).
   const current = CURS.map((c) => (rates ?? []).filter((r) => r.currency === c && r.status === 'CONFIRMED' && r.effectiveDate && r.effectiveDate.slice(0, 10) <= today()).sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate) || b.createdAt.localeCompare(a.createdAt))[0] ?? null);
@@ -44,6 +63,14 @@ export default function FxPage() {
               : <><div className="big muted">—</div><div className="text-xs b-warn">Нет подтверждённого курса</div></>}
           </div>); })}
       </div>
+
+      {manage && <div className="flex items-center gap-3 flex-wrap"><button className="btn" onClick={fetchCbu}>Подтянуть курсы ЦБ</button><span className="muted text-sm">Официальные курсы ЦБ Узбекистана (USD, EUR, RUB) придут как «ожидает подтверждения»; применяет их только человек. Раз в сутки это происходит автоматически.</span></div>}
+      {manage && pendingAll.length > 0 && (
+        <div className="panel p-4 flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: 'var(--pending)' }}>
+          <div><b className="b-warn">Ожидают подтверждения: {pendingAll.length}</b>
+            <p className="muted text-sm">Пока курсы не подтверждены, итоги в UZS по другим валютам считаются неполными. Проверьте значения в таблице ниже и подтвердите.{pendingAll.length !== pendingDated.length && ' У части курсов нет даты — их подтверждают по одному (с указанием даты).'}</p></div>
+          {pendingDated.length > 0 && <button className="btn btn-primary" onClick={confirmAll}>Подтвердить все ({pendingDated.length})</button>}
+        </div>)}
 
       <div className="panel p-4 text-sm space-y-1">
         <b>Как изменить курс</b>

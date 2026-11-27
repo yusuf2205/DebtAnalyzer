@@ -131,6 +131,31 @@ summary.chip:hover, .chip:hover { background: var(--panel-2); }
 .chip { cursor: pointer; white-space: nowrap; font-size: 13px; }
 .chip-on, .chip-on:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
+/* ───────── Планшет (768–1023 px): боковая панель только с иконками ───────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .rail { padding: 12px 10px !important; }
+  .rail .nl-label { display: none; }
+  .rail .nav-link, .rail .btn { justify-content: center; padding-left: 0; padding-right: 0; }
+  .rail .avatar { margin: 0 auto; }
+  .rail .brand-mark { margin: 0 auto; }
+  main { padding-left: 20px; padding-right: 20px; }
+}
+
+/* ───────── Логотип и его анимации ───────── */
+.pf-logo { display: block; color: var(--text); flex: none; overflow: visible; }
+.pf-logo-body { transform-box: fill-box; transform-origin: center; }
+.pf-logo-loop .pf-logo-body { animation: logo-turn 2.4s cubic-bezier(.65, 0, .35, 1) infinite; }
+@keyframes logo-turn { 0%, 12% { transform: rotate(0); } 88%, 100% { transform: rotate(180deg); } }
+.pf-logo-half { opacity: 0; }
+.pf-logo-half-a { animation: logo-in-a 1s cubic-bezier(.22, 1, .36, 1) both, logo-off 0s linear 1s forwards; }
+.pf-logo-half-b { animation: logo-in-b 1s cubic-bezier(.22, 1, .36, 1) both, logo-off 0s linear 1s forwards; }
+.pf-logo-whole { opacity: 0; animation: logo-on 0s linear 1s forwards; }
+@keyframes logo-in-a { 0% { transform: translate(-267px, 297px); opacity: 0; } 25% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes logo-in-b { 0% { transform: translate(267px, -297px); opacity: 0; } 25% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes logo-off { to { opacity: 0; } }
+@keyframes logo-on { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pf-logo-half { display: none; } .pf-logo-whole { opacity: 1; } }
+
 /* ───────── Выдвижное меню (телефон) ───────── */
 @keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }

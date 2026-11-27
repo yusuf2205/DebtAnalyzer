@@ -1,10 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, money } from './api';
-import { Icon } from './icons';
+import { PeekShell, Row, Tile } from './peek-shell';
 import { useSession } from './session';
-import { PAY_KIND, PayBadge, StateBadge } from './ui';
+import { OriginBadge, PAY_KIND, PayBadge, StateBadge } from './ui';
 
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const num = (v: any) => Number(v ?? 0);
@@ -19,7 +19,6 @@ export function ContractPeek({ id, onClose }: { id: string; onClose: () => void 
   const { can } = useSession();
   const [c, setC] = useState<any>(null);
   const [error, setError] = useState('');
-  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -28,32 +27,17 @@ export function ContractPeek({ id, onClose }: { id: string; onClose: () => void 
     return () => { alive = false; };
   }, [id]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    document.body.classList.add('peek-open'); // на широком экране сдвигает основное содержимое, чтобы панель не закрывала таблицу
-    return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('peek-open'); };
-  }, [onClose]);
-  useEffect(() => { closeRef.current?.focus(); }, [id]);
-
   const plans: any[] = c ? [...c.plans].sort((a, b) => a.year - b.year || a.month - b.month || a.week - b.week) : [];
   const payments: any[] = c?.payments ?? [];
 
   return (
-    <div className="peek-wrap">
-      <div className="peek-backdrop md:hidden" onClick={onClose} aria-hidden="true" />
-      <div role="dialog" aria-modal="false" aria-label="Краткая карточка договора" className="peek">
-        <div className="flex items-start justify-between gap-3 p-4 pb-2">
-          <div className="min-w-0">
-            <h2 className="font-semibold text-lg leading-snug break-words">{c ? (c.number ?? 'Без номера') : 'Загрузка…'}{c?.status === 'ARCHIVED' && <span className="badge b-mute ml-2">архив</span>}</h2>
-            {c && <p className="muted text-sm"><Link className="underline" href={`/suppliers/${c.supplier.id}`}>{c.supplier.name}</Link>{c.project && <> · {c.project}</>}{c.contractDate && <> · от {dt(c.contractDate)}</>}</p>}
-          </div>
-          <button ref={closeRef} className="btn shrink-0" style={{ padding: '7px 10px' }} onClick={onClose} aria-label="Закрыть панель"><Icon name="close" size={18} /></button>
-        </div>
+    <PeekShell label="Краткая карточка договора" focusKey={id} onClose={onClose}
+      title={<>{c ? (c.number ?? 'Без номера') : 'Загрузка…'}{c?.status === 'ARCHIVED' && <span className="badge b-mute ml-2">архив</span>}</>}
+      subtitle={c && <><Link className="underline" href={`/suppliers/${c.supplier.id}`}>{c.supplier.name}</Link>{c.project && <> · {c.project}</>}{c.contractDate && <> · от {dt(c.contractDate)}</>}</>}>
         {error && <p role="alert" className="b-err px-4">{error}</p>}
         {c && (
           <div className="px-4 pb-4 space-y-4 overflow-y-auto">
-            <div className="flex items-center gap-2 flex-wrap"><StateBadge state={c.state} /><span className="muted text-xs">{c.currency}</span></div>
+            <div className="flex items-center gap-2 flex-wrap"><StateBadge state={c.state} /><span className="muted text-xs">{c.currency}</span><OriginBadge c={c} /></div>
 
             <div className="grid grid-cols-2 gap-2">
               <Tile label="Сумма договора" value={money(c.amount)} unit={c.currency} />
@@ -90,14 +74,6 @@ export function ContractPeek({ id, onClose }: { id: string; onClose: () => void 
               {can('plans.view') && <Link href={`/calendar?contractId=${id}`} className="btn">В календаре</Link>}
             </div>
           </div>)}
-      </div>
-    </div>
+    </PeekShell>
   );
-}
-
-function Tile({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
-  return <div className="panel px-3 py-2"><div className="muted text-xs">{label}</div><div className={`font-semibold tabular-nums ${tone ?? ''}`}>{value} <span className="text-xs font-normal muted">{unit}</span></div></div>;
-}
-function Row({ k, v }: { k: string; v?: string | null }) {
-  return <div className="flex gap-2"><dt className="muted shrink-0">{k}:</dt><dd className="min-w-0 break-words whitespace-pre-line">{v || '—'}</dd></div>;
 }

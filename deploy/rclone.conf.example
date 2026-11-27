@@ -1,0 +1,20 @@
+# Пример настройки rclone для внешней копии (скопируйте в deploy/rclone.conf и заполните; сам файл не коммитится).
+# Затем в .env: COMPOSE_PROFILES=offsite  OFFSITE_REMOTE=secret:procurement  OFFSITE_KEEP_DAYS=90
+# Интерактивная настройка (создаёт такой файл): docker run --rm -it -v $PWD/deploy:/config/rclone rclone/rclone config
+#
+# 1) Облачное хранилище (пример: S3-совместимое; для Google Drive/Яндекс Диска/SFTP тип другой — см. rclone config):
+[cloud]
+type = s3
+provider = Other
+access_key_id = ЗАМЕНИТЕ
+secret_access_key = ЗАМЕНИТЕ
+endpoint = https://s3.example.com
+region = auto
+
+# 2) Шифрование поверх облака: во внешнее хранилище уходят уже зашифрованные файлы и имена.
+#    Пароли получите командой: rclone obscure "ваш_пароль"; ХРАНИТЕ их отдельно — без них копии не расшифровать!
+[secret]
+type = crypt
+remote = cloud:procurement-backups
+password = ЗАМЕНИТЕ_РЕЗУЛЬТАТОМ_rclone_obscure
+password2 = ЗАМЕНИТЕ_РЕЗУЛЬТАТОМ_rclone_obscure

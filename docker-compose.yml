@@ -25,6 +25,18 @@ x-google-env: &google-env
   GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
   TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
 
+# Уведомления (необязательны): пустые значения = канал выключен. Получатели и расписание — в приложении («Уведомления»).
+x-notify-env: &notify-env
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_SECURE: ${SMTP_SECURE:-}
+  APP_TIMEZONE: ${APP_TIMEZONE:-}
+  APP_BASE_URL: ${APP_BASE_URL:-}
+
 services:
   postgres:
     <<: *restart
@@ -50,7 +62,7 @@ services:
     build: { context: ., dockerfile: deploy/Dockerfile.api }
     depends_on: { postgres: { condition: service_healthy } }
     environment:
-      <<: *google-env
+      <<: [*google-env, *notify-env]
       NODE_ENV: production
       DATABASE_URL: postgresql://pf:${POSTGRES_PASSWORD}@postgres:5432/pf
       UPLOAD_DIR: /data/uploads
@@ -77,12 +89,15 @@ services:
     command: ["node", "dist/worker.js"]
     depends_on: { api: { condition: service_healthy } } # api применяет миграции
     environment:
-      <<: *google-env
+      <<: [*google-env, *notify-env]
       NODE_ENV: production
       DATABASE_URL: postgresql://pf:${POSTGRES_PASSWORD}@postgres:5432/pf
       UPLOAD_DIR: /data/uploads
+      BACKUP_DIR: /backups # для проверок «Системы» в тревожных уведомлениях
+      TRUST_PROXY_HOPS: "2"
     volumes:
       - uploads:/data/uploads
+      - ${BACKUP_DIR:-./backups}:/backups:ro
     logging: *logging
     networks: [db, app]
 
@@ -110,8 +125,33 @@ services:
     logging: *logging
     networks: [app]
 
+  # Копия резервных копий ВНЕ NAS (rclone). Включается профилем: COMPOSE_PROFILES=offsite в .env + OFFSITE_REMOTE.
+  # Конфигурация rclone — файл deploy/rclone.conf (см. deploy/rclone.conf.example); контейнеру доступен только каталог копий.
+  offsite:
+    <<: *restart
+    profiles: ["offsite"]
+    image: rclone/rclone:1.68.2
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          /offsite-sync.sh || echo "OFFSITE FAILED" >&2
+          sleep 21600
+        done
+    environment:
+      OFFSITE_REMOTE: ${OFFSITE_REMOTE:-}
+      OFFSITE_KEEP_DAYS: ${OFFSITE_KEEP_DAYS:-}
+      RCLONE_CONFIG: /config/rclone.conf
+    volumes:
+      - ./deploy/offsite-sync.sh:/offsite-sync.sh:ro
+      - ./deploy/rclone.conf:/config/rclone.conf:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    logging: *logging
+    networks: [app]
+
   # Резервное копирование: сразу при запуске, затем раз в сутки. Еженедельно (и после первой копии) —
-  # проверка восстановления в отдельную БД. Вручную: docker compose run --rm backup /backup.sh | /restore-test.sh
+  # проверка восстановления в отдельную БД. Вручную: docker compose run --rm --entrypoint /backup.sh backup  (или /restore-test.sh)
   backup:
     <<: *restart
     image: postgres:16-alpine

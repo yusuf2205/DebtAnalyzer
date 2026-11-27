@@ -1,9 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { api, money } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { SavedViews } from '@/lib/list-tools';
+import { PaymentPeek } from '@/lib/peeks';
 import { CURRENCIES, ExportLink, PAY_KIND, PAY_STATUS, PayBadge, PagerBar, qs, usePageSize } from '@/lib/ui';
 
 export default function Page() { return <Suspense fallback={<p className="muted">Загрузка…</p>}><Payments /></Suspense>; }
@@ -14,12 +16,15 @@ function Payments() {
   const [f, setF] = useState({ status: sp.get('status') ?? '', kind: '', currency: '', q: '', from: '', to: '', contractId: sp.get('contractId') ?? '', supplierId: sp.get('supplierId') ?? '', page: 1 });
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
+  const [peek, setPeek] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const closePeek = useCallback(() => setPeek(null), []);
   const [pageSize, setPageSize] = usePageSize('payments');
   const query = qs({ ...f, pageSize });
   useEffect(() => {
     const t = setTimeout(() => api('GET', `/payments?${query}`).then(setData).catch((e) => setError(e.message)), 200);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, tick]);
   const set = (p: Partial<typeof f>) => setF((s) => ({ ...s, page: 1, ...p }));
   const pending = data?.byStatus?.PENDING ?? 0;
 
@@ -46,21 +51,23 @@ function Payments() {
         <label className="flex items-center gap-1 muted text-xs">по<input className="input" type="date" value={f.to} onChange={(e) => set({ to: e.target.value })} /></label>
         {(f.contractId || f.supplierId) && <button className="btn" onClick={() => set({ contractId: '', supplierId: '' })}>Сбросить фильтр по договору/контрагенту ✕</button>}
       </div>
+      <SavedViews storeKey="payments" current={f} onApply={(v) => setF(v as typeof f)} />
       {data?.totals?.length > 0 && (
         <div className="panel overflow-x-auto"><table className="tbl"><thead><tr><th>Валюта</th><th className="num">Подтверждено (чистая оплата)</th><th className="num">Ожидает подтверждения</th></tr></thead>
           <tbody>{data.totals.map((t: any) => <tr key={t.currency}><td><b>{t.currency}</b></td><td className="num b-ok">{money(t.approvedNet)}</td><td className="num b-warn">{Number(t.pending) ? money(t.pending) : '—'}</td></tr>)}</tbody></table></div>)}
       <div className="panel overflow-auto" style={{ maxHeight: '62vh' }}>
-        <table className="tbl"><thead><tr><th>Дата</th><th>Контрагент</th><th>Договор</th><th>Тип</th><th className="num">Сумма</th><th>Вал.</th><th>Статус</th><th>Документ / транзакция</th><th>Создал</th></tr></thead>
+        <table className="tbl"><thead><tr><th>Дата</th><th>Контрагент</th><th>Договор</th><th>Тип</th><th className="num">Сумма</th><th>Вал.</th><th>Статус</th><th>Документ / транзакция</th><th>Файлы</th><th>Создал</th></tr></thead>
           <tbody>{data?.items.map((p: any) => (
-            <tr key={p.id}>
-              <td><Link className="underline" href={`/payments/${p.id}`}>{new Date(p.paymentDate).toLocaleDateString('ru-RU')}</Link></td>
+            <tr key={p.id} className="row-link" aria-selected={peek === p.id} onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) setPeek(p.id); }}>
+              <td><Link className="underline" href={`/payments/${p.id}`} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); setPeek(p.id); }}>{new Date(p.paymentDate).toLocaleDateString('ru-RU')}</Link></td>
               <td className="max-w-56"><Link href={`/suppliers/${p.supplier.id}`}>{p.supplier.name}</Link></td><td className="max-w-48 truncate"><Link href={`/contracts/${p.contract.id}`}>{p.contract.number}</Link></td>
               <td>{PAY_KIND[p.kind]}</td><td className={`num ${p.kind === 'PAYMENT' ? 'b-ok' : 'b-err'}`}>{p.kind === 'PAYMENT' ? '' : '−'}{money(p.amount)}</td><td>{p.currency}</td>
               <td><PayBadge status={p.status} />{p.reversedByPaymentId && <span className="badge b-mute ml-1">сторнирован</span>}{p.reflectedInOpening && <span className="badge b-info ml-1">в остатке</span>}</td>
-              <td className="text-xs">{[p.bankDocument, p.transactionNo].filter(Boolean).join(' / ')}</td><td className="text-xs">{p.createdBy.name}</td></tr>))}
-            {data?.items.length === 0 && <tr><td colSpan={9} className="muted">Платежей нет</td></tr>}</tbody></table>
+              <td className="text-xs">{[p.bankDocument, p.transactionNo].filter(Boolean).join(' / ')}</td><td>{p.documentCount ? <span className="badge b-info" title="Приложено документов">{p.documentCount}</span> : <span className="muted">—</span>}</td><td className="text-xs">{p.createdBy.name}</td></tr>))}
+            {data?.items.length === 0 && <tr><td colSpan={10} className="muted">Платежей нет</td></tr>}</tbody></table>
       </div>
       {data && <PagerBar page={f.page} pageSize={pageSize} total={data.total} noun="платежей" onPage={(p) => setF({ ...f, page: p })} onPageSize={(n) => { setPageSize(n); setF({ ...f, page: 1 }); }} />}
+      {peek && <PaymentPeek id={peek} onClose={closePeek} onChanged={() => setTick((t) => t + 1)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Проверка восстановления: берёт ПОСЛЕДНЮЮ резервную копию, восстанавливает её в отдельную БД и проверяет целостность.
 # Результат пишется в /backups/last-restore-test.json (его показывает страница «Система»).
-# Рабочая БД не изменяется. Запуск вручную: docker compose run --rm backup /restore-test.sh
+# Рабочая БД не изменяется. Запуск вручную: docker compose run --rm --entrypoint /restore-test.sh backup
 set -u
 DIR="${BACKUP_PATH:-/backups}"
 SCRATCH="${SCRATCH_DB:-pf_restore_test}"

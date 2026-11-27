@@ -1,4 +1,9 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { createReadStream } from 'node:fs';
+import { resolve } from 'node:path';
+import { storeDocument } from '../common/documents';
+import { loadConfig } from '../config';
 import type { Response } from 'express';
 import { Prisma, type Payment } from '@prisma/client';
 import { z } from 'zod';
@@ -46,6 +51,7 @@ export class PaymentsController {
     const name = new Map(users.map((u) => [u.id, u.name]));
     const reversals = await this.prisma.payment.findMany({ where: { reversesPaymentId: { in: ids } }, select: { id: true, reversesPaymentId: true } });
     const reversedBy = new Map(reversals.map((r) => [r.reversesPaymentId!, r.id]));
+    const docCounts = new Map((await this.prisma.paymentDocument.groupBy({ by: ['paymentId'], where: { paymentId: { in: ids }, deletedAt: null }, _count: true })).map((d) => [d.paymentId, d._count]));
     return items.map((p) => ({
       id: p.id, contract: { id: p.contract.id, number: p.contract.number, status: p.contract.status }, supplier: p.contract.supplier, paymentDate: p.paymentDate.toISOString().slice(0, 10),
       amount: p.amount.toFixed(2), currency: p.currency, kind: p.kind, status: p.status, signedAmount: p.signedAmount?.toFixed(2) ?? null,
@@ -54,7 +60,7 @@ export class PaymentsController {
       approvedBy: p.approvedById ? { id: p.approvedById, name: name.get(p.approvedById) ?? null } : null, approvedAt: p.approvedAt,
       rejectedBy: p.rejectedById ? { id: p.rejectedById, name: name.get(p.rejectedById) ?? null } : null, rejectReason: p.rejectReason,
       reflectedInOpening: p.reflectedInOpening, reversesPaymentId: p.reversesPaymentId, reversalReason: p.reversalReason, correctsPaymentId: p.correctsPaymentId,
-      reversedByPaymentId: reversedBy.get(p.id) ?? null,
+      reversedByPaymentId: reversedBy.get(p.id) ?? null, documentCount: docCounts.get(p.id) ?? 0,
     }));
   }
 
@@ -132,7 +138,8 @@ export class PaymentsController {
     const p = await this.one(id);
     const [view] = await this.enrich([p]);
     const history = await this.prisma.auditLog.findMany({ where: { entity: 'Payment', entityId: id }, orderBy: { id: 'desc' }, take: 100 });
-    return { ...view, history: history.map((h) => ({ ...h, id: h.id.toString() })) };
+    const documents = await this.prisma.paymentDocument.findMany({ where: { paymentId: id, deletedAt: null }, orderBy: { createdAt: 'desc' } });
+    return { ...view, documents: documents.map((x) => ({ id: x.id, filename: x.filename, size: x.size, sha256: x.sha256, createdAt: x.createdAt, uploadedById: x.uploadedById })), history: history.map((h) => ({ ...h, id: h.id.toString() })) };
   }
 
   // ---- создание и редактирование ----
@@ -227,6 +234,10 @@ export class PaymentsController {
       await tx.$queryRaw`SELECT id FROM "Contract" WHERE id = ${probe.contractId} FOR UPDATE`;
       const p = await tx.payment.findUniqueOrThrow({ where: { id } });
       if (p.status !== 'PENDING') throw new ConflictException('Платёж не ожидает подтверждения');
+      const policy = (await tx.appSetting.findUnique({ where: { key: 'paymentPolicy' } }))?.value as { requireDocument?: boolean } | null | undefined;
+      if (policy?.requireDocument && (await tx.paymentDocument.count({ where: { paymentId: id, deletedAt: null } })) === 0) {
+        throw new BadRequestException({ message: 'По правилам организации для подтверждения нужен документ: приложите платёжное поручение или выписку', code: 'DOCUMENT_REQUIRED' });
+      }
       const self = p.createdById === u.id;
       if (self && u.role !== 'SUPER_ADMIN') throw new ForbiddenException('Платёж не может подтверждать тот, кто его создал');
       const c = await tx.contract.findUniqueOrThrow({ where: { id: p.contractId } });
@@ -324,5 +335,51 @@ export class PaymentsController {
       return np;
     });
     return (await this.enrich([await this.one(out.id)]))[0];
+  }
+
+  // ---- документы платежа ----
+  private async docRights(u: AuthUser, p: Payment) {
+    // Прикладывать может тот, кто создаёт платежи, и тот, кто их подтверждает (выписка часто приходит позже).
+    if (!u.permissions.includes('payments.create') && !u.permissions.includes('payments.approve')) throw new ForbiddenException('Недостаточно прав');
+    if (p.status === 'CANCELLED') throw new BadRequestException('Платёж отменён');
+  }
+
+  @Post(':id/documents')
+  @RequirePermission('payments.view')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024, files: 1 } }))
+  async uploadDoc(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @ClientIp() ip: string | null) {
+    const p = await this.prisma.payment.findUnique({ where: { id } });
+    if (!p) throw new NotFoundException('Платёж не найден');
+    await this.docRights(u, p);
+    if (!file) throw new BadRequestException('Файл не передан');
+    const stored = await storeDocument(file, loadConfig().UPLOAD_DIR);
+    const doc = await this.prisma.paymentDocument.create({ data: { paymentId: id, ...stored, uploadedById: u.id } });
+    await this.audit.log({ userId: u.id, userEmail: u.email, action: 'payment.document_add', entity: 'Payment', entityId: id, after: { documentId: doc.id, filename: doc.filename, size: doc.size, sha256: doc.sha256 }, ip });
+    return { id: doc.id, filename: doc.filename, size: doc.size };
+  }
+
+  @Get(':id/documents/:docId')
+  @RequirePermission('payments.view')
+  async downloadDoc(@Param('id', ParseUUIDPipe) id: string, @Param('docId', ParseUUIDPipe) docId: string, @Res({ passthrough: true }) res: Response) {
+    const doc = await this.prisma.paymentDocument.findFirst({ where: { id: docId, paymentId: id, deletedAt: null } });
+    if (!doc) throw new NotFoundException('Документ не найден');
+    res.setHeader('Content-Type', doc.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="document"; filename*=UTF-8''${encodeURIComponent(doc.filename)}`);
+    return new StreamableFile(createReadStream(resolve(doc.path)));
+  }
+
+  /** Документ подтверждённого платежа удалить нельзя: он — основание подтверждения (для исправления есть сторно). */
+  @Delete(':id/documents/:docId')
+  @RequirePermission('payments.view')
+  async removeDoc(@CurrentUser() u: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('docId', ParseUUIDPipe) docId: string, @ClientIp() ip: string | null) {
+    const p = await this.prisma.payment.findUnique({ where: { id } });
+    if (!p) throw new NotFoundException('Платёж не найден');
+    await this.docRights(u, p);
+    if (p.status === 'APPROVED') throw new BadRequestException('Документ подтверждённого платежа удалить нельзя — он основание подтверждения');
+    const doc = await this.prisma.paymentDocument.findFirst({ where: { id: docId, paymentId: id, deletedAt: null } });
+    if (!doc) throw new NotFoundException('Документ не найден');
+    await this.prisma.paymentDocument.update({ where: { id: docId }, data: { deletedAt: new Date(), deletedById: u.id } });
+    await this.audit.log({ userId: u.id, userEmail: u.email, action: 'payment.document_remove', entity: 'Payment', entityId: id, before: { documentId: docId, filename: doc.filename, sha256: doc.sha256 }, ip });
+    return { ok: true };
   }
 }

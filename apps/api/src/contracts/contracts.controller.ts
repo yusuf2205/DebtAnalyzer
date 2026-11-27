@@ -1,15 +1,17 @@
 import {
-  BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseInterceptors,
+  BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res, StreamableFile, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { effectiveOrigin } from '@pf/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { CURRENCIES } from '@pf/shared';
+import { DOC_TYPES } from '../common/documents';
 import { AuditService } from '../audit/audit.service';
 import { ClientIp, CurrentUser, RequirePermission } from '../auth/decorators';
 import type { AuthUser } from '../common/types';
@@ -31,26 +33,25 @@ const listQuery = z.object({
   currency: z.enum(CURRENCIES).optional(),
   status: z.enum(['ACTIVE', 'ARCHIVED', 'ALL']).default('ACTIVE'),
   state: z.enum(['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID', 'OPEN']).optional(), // OPEN = есть долг
+  origin: z.enum(['LOCAL', 'FOREIGN', 'UNSET']).optional(), // по действующему значению: подтверждённое, а если его нет — предложенное; UNSET — определить нельзя
   sort: z.enum(['number', 'supplier', 'project', 'amount', 'debt', 'date', 'created']).default('created'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(50),
 });
 
-const DOC_TYPES: Record<string, { mime: string; magic: (b: Buffer) => boolean }> = {
-  pdf: { mime: 'application/pdf', magic: (b) => b.subarray(0, 4).toString() === '%PDF' },
-  png: { mime: 'image/png', magic: (b) => b[0] === 0x89 && b.subarray(1, 4).toString() === 'PNG' },
-  jpg: { mime: 'image/jpeg', magic: (b) => b[0] === 0xff && b[1] === 0xd8 },
-  jpeg: { mime: 'image/jpeg', magic: (b) => b[0] === 0xff && b[1] === 0xd8 },
-  docx: { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', magic: (b) => b[0] === 0x50 && b[1] === 0x4b },
-  xlsx: { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', magic: (b) => b[0] === 0x50 && b[1] === 0x4b },
-};
 
 type ContractWithRels = Prisma.ContractGetPayload<{ include: { supplier: { select: { id: true; name: true } }; plans: { select: { amount: true } } } }>;
 
 @Controller('contracts')
 export class ContractsController {
   constructor(private prisma: PrismaService, private audit: AuditService) {}
+
+  /** Происхождение: подтверждённое значение и предложение системы (признак — в shared/origin.ts). */
+  private originInfo(c: { origin: 'LOCAL' | 'FOREIGN' | null; currency: string; supplier: { name: string; taxId?: string | null } }) {
+    const e = effectiveOrigin({ origin: c.origin, currency: c.currency, supplierName: c.supplier.name, supplierTaxId: c.supplier.taxId });
+    return { originSuggested: e.suggested, originEffective: e.value };
+  }
 
   private view(c: ContractWithRels, newPaid?: Prisma.Decimal | null) {
     const d = contractDebt({ ...c, newPaid });
@@ -59,6 +60,7 @@ export class ContractsController {
       id: c.id, number: c.number, project: c.project, goods: c.goods, contractDate: c.contractDate?.toISOString().slice(0, 10) ?? null,
       supplier: c.supplier, currency: c.currency, amount: c.amount.toFixed(2), openingPaid: c.openingPaid.toFixed(2), newPaid: (newPaid ?? new Prisma.Decimal(0)).toFixed(2), paid: d.totalPaid.toFixed(2),
       debt: d.debt.toFixed(2), overpaid: d.overpaid.toFixed(2), state: d.state, planned: planned.toFixed(2), executor: c.executor, status: c.status, createdAt: c.createdAt,
+      origin: c.origin, ...this.originInfo(c),
     };
   }
 
@@ -72,9 +74,10 @@ export class ContractsController {
         { supplier: { name: { contains: q.q, mode: 'insensitive' } } }, { supplier: { aliases: { some: { alias: { contains: q.q, mode: 'insensitive' } } } } },
       ] } : {}),
     };
-    const all = await this.prisma.contract.findMany({ where, include: { supplier: { select: { id: true, name: true } }, plans: { select: { amount: true } } } });
+    const all = await this.prisma.contract.findMany({ where, include: { supplier: { select: { id: true, name: true, taxId: true } }, plans: { select: { amount: true } } } });
     const net = await netPaidMap(this.prisma, all.map((c) => c.id));
     let rows = all.map((c) => ({ raw: c, net: net.get(c.id) ?? null, v: this.view(c, net.get(c.id) ?? null) }));
+    if (q.origin) rows = rows.filter((r) => (q.origin === 'UNSET' ? r.v.originEffective === null : r.v.originEffective === q.origin));
     if (q.state) rows = rows.filter((r) => (q.state === 'OPEN' ? Number(r.v.debt) > 0 : r.v.state === q.state));
     const key: Record<string, (r: (typeof rows)[number]) => string | number> = {
       number: (r) => r.v.number ?? '', supplier: (r) => r.v.supplier.name, project: (r) => r.v.project ?? '', amount: (r) => Number(r.v.amount), debt: (r) => Number(r.v.debt),
@@ -144,7 +147,7 @@ export class ContractsController {
   async get(@Param('id', ParseUUIDPipe) id: string) {
     const c = await this.prisma.contract.findUnique({
       where: { id },
-      include: { supplier: { select: { id: true, name: true } }, plans: { orderBy: [{ year: 'asc' }, { month: 'asc' }, { week: 'asc' }] }, documents: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } } },
+      include: { supplier: { select: { id: true, name: true, taxId: true } }, plans: { orderBy: [{ year: 'asc' }, { month: 'asc' }, { week: 'asc' }] }, documents: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } } },
     });
     if (!c) throw new NotFoundException('Договор не найден');
     const [history, tasks] = await Promise.all([
@@ -172,6 +175,7 @@ export class ContractsController {
       supplierId: z.string().uuid().optional(), number: z.string().trim().min(1).max(300).optional(), contractDate: dateStr.nullable().optional(), project: z.string().trim().max(300).nullable().optional(),
       goods: z.string().trim().max(500).nullable().optional(), executor: z.string().trim().max(100).nullable().optional(), notes: z.string().trim().max(4000).nullable().optional(),
       amount: money2.optional(), currency: z.enum(CURRENCIES).optional(), reason: z.string().trim().min(3).max(500).optional(),
+      origin: z.enum(['LOCAL', 'FOREIGN']).nullable().optional(),
     }).strict(), body);
     const before = await this.prisma.contract.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Договор не найден');
@@ -190,6 +194,54 @@ export class ContractsController {
       meta: { reason: reason ?? null, divergesFromSource: financial && !!before.sourceBatchId },
     });
     return { id };
+  }
+
+  /**
+   * Массовые действия над выбранными договорами: архив, восстановление, смена исполнителя.
+   * Права проверяются как для одиночных операций; каждое изменение пишется в аудит отдельной записью (с пометкой bulk).
+   * Суммы, валюта и платежи массово не меняются.
+   */
+  @Post('bulk')
+  @RequirePermission('contracts.view')
+  async bulk(@CurrentUser() u: AuthUser, @Body() body: unknown, @ClientIp() ip: string | null) {
+    const d = parse(z.object({
+      action: z.enum(['archive', 'restore', 'executor', 'origin', 'origin-accept']),
+      ids: z.array(z.string().uuid()).min(1, 'Выберите хотя бы один договор').max(500, 'Не больше 500 договоров за раз'),
+      executor: z.string().trim().max(100).nullable().optional(),
+      origin: z.enum(['LOCAL', 'FOREIGN']).nullable().optional(),
+    }).strict(), body);
+    const need = d.action === 'archive' || d.action === 'restore' ? 'contracts.archive' : 'contracts.manage';
+    if (!u.permissions.includes(need)) throw new ForbiddenException('Недостаточно прав для этого действия');
+    if (d.action === 'executor' && d.executor === undefined) throw new BadRequestException('Укажите исполнителя (или пустое значение, чтобы очистить)');
+    const ids = [...new Set(d.ids)];
+    if (d.action === 'origin' && d.origin === undefined) throw new BadRequestException('Укажите значение: местный, зарубежный или пусто (сбросить)');
+    const rows = await this.prisma.contract.findMany({ where: { id: { in: ids } }, include: { supplier: { select: { name: true, taxId: true } } } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    let updated = 0, skipped = 0;
+    for (const id of ids) {
+      const c = byId.get(id);
+      if (!c) { skipped++; continue; }
+      if (d.action === 'origin' || d.action === 'origin-accept') {
+        // «Принять предложения»: только там, где значение ещё не подтверждено и предложение есть
+        const next = d.action === 'origin' ? (d.origin ?? null) : (c.origin ? null : this.originInfo(c).originSuggested);
+        if (next === null && d.action === 'origin-accept') { skipped++; continue; }
+        if (c.origin === next) { skipped++; continue; }
+        await this.prisma.contract.update({ where: { id }, data: { origin: next } });
+        await this.audit.log({ userId: u.id, userEmail: u.email, action: 'contract.update', entity: 'Contract', entityId: id, before: { origin: c.origin }, after: { origin: next }, meta: { bulk: true, acceptedSuggestion: d.action === 'origin-accept' }, ip });
+      } else if (d.action === 'executor') {
+        const next = d.executor ? d.executor : null;
+        if (c.status === 'ARCHIVED' || (c.executor ?? null) === next) { skipped++; continue; }
+        await this.prisma.contract.update({ where: { id }, data: { executor: next } });
+        await this.audit.log({ userId: u.id, userEmail: u.email, action: 'contract.update', entity: 'Contract', entityId: id, before: { executor: c.executor }, after: { executor: next }, meta: { bulk: true }, ip });
+      } else {
+        const status = d.action === 'archive' ? 'ARCHIVED' : 'ACTIVE';
+        if (c.status === status) { skipped++; continue; }
+        await this.prisma.contract.update({ where: { id }, data: { status } });
+        await this.audit.log({ userId: u.id, userEmail: u.email, action: status === 'ARCHIVED' ? 'contract.archive' : 'contract.restore', entity: 'Contract', entityId: id, before: { status: c.status }, after: { status }, meta: { bulk: true }, ip });
+      }
+      updated++;
+    }
+    return { updated, skipped };
   }
 
   @Post(':id/archive')

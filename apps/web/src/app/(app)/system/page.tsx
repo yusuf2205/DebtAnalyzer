@@ -10,6 +10,10 @@ export default function SystemPage() {
   const load = useCallback(() => api('GET', '/system/status').then((r) => { setS(r); setError(''); }).catch((e) => setError(e.message)), []);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
 
+  const markPc = async () => { if (!confirm('Подтвердите: резервная копия восстановлена на другом компьютере, данные проверены.')) return; try { await api('POST', '/system/mark-restore-pc'); await load(); } catch (e) { setError((e as Error).message); } };
+  const [requireDoc, setRequireDoc] = useState<boolean | null>(null);
+  useEffect(() => { api<{ requireDocument: boolean }>('GET', '/system/policy').then((r) => setRequireDoc(r.requireDocument)).catch(() => {}); }, []);
+  const toggleDoc = async (v: boolean) => { try { const r = await api<{ requireDocument: boolean }>('PUT', '/system/policy', { requireDocument: v }); setRequireDoc(r.requireDocument); } catch (e) { setError((e as Error).message); } };
   const up = s ? `${Math.floor(s.uptimeSec / 3600)} ч ${Math.floor((s.uptimeSec % 3600) / 60)} мин` : '';
   return (
     <div className="space-y-4 max-w-4xl">
@@ -22,11 +26,17 @@ export default function SystemPage() {
           <span className="muted text-xs ml-auto">работает {up} · Node {s.node} · {s.env}</span>
         </div>
         <div className="panel overflow-x-auto"><table className="tbl"><thead><tr><th>Проверка</th><th>Статус</th><th>Подробности</th></tr></thead>
-          <tbody>{s.checks.map((c: any) => <tr key={c.id}><td className="whitespace-nowrap">{c.title}</td><td><span className={`badge ${LEVEL[c.status][1]}`}>{LEVEL[c.status][0]}</span></td><td className="text-sm">{c.detail}</td></tr>)}</tbody></table></div>
+          <tbody>{s.checks.map((c: any) => <tr key={c.id}><td className="whitespace-nowrap">{c.title}</td><td><span className={`badge ${LEVEL[c.status][1]}`}>{LEVEL[c.status][0]}</span></td><td className="text-sm">{c.detail}{c.id === 'restore-pc' && <> <button className="btn ml-2" onClick={markPc}>Отметить выполненным</button></>}</td></tr>)}</tbody></table></div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[['Активных пользователей', s.counters.activeUsers], ['Активных сессий', s.counters.activeSessions], ['Открытых сверок', s.counters.openReconciliations], ['Платежей на подтверждении', s.counters.pendingPayments]].map(([l, v]) => (
             <div key={l as string} className="panel p-3"><div className="muted text-xs">{l}</div><div className="text-lg font-semibold">{v}</div></div>))}
         </div>
+        {requireDoc !== null && (
+          <section className="panel p-4 space-y-1">
+            <h2 className="font-semibold">Правила платежей</h2>
+            <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" style={{ accentColor: 'var(--accent)', width: 16, height: 16 }} checked={requireDoc} onChange={(e) => toggleDoc(e.target.checked)} />Для подтверждения платежа нужен приложенный документ (платёжное поручение или выписка)</label>
+            <p className="muted text-xs">Если включено, «Подтвердить» вернёт ошибку, пока к платежу не приложен файл. Изменение записывается в журнал аудита.</p>
+          </section>)}
         <p className="muted text-xs">Мониторинг извне: направьте Uptime Kuma (или аналог) на <code>/api/health</code> — ответ 200 при исправной базе данных, 503 при её недоступности.</p>
       </>)}
     </div>

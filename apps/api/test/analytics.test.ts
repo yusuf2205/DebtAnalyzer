@@ -100,6 +100,22 @@ describe('M6: дашборд', () => {
     expect(typeof d.plant.message).toBe('string');
   });
 
+  it('прогноз по неделям согласован с «ближайшими»; разрезы по проектам и исполнителям отсортированы; тренд без истории — пусто', async () => {
+    const d = await dash(`supplierId=${S}&horizon=56`);
+    expect(d.forecast.weeks).toHaveLength(8);
+    d.forecast.weeks.forEach((w: any, i: number) => expect(w.from).toBe(new Date(Date.now() + i * 7 * 86400_000).toISOString().slice(0, 10)));
+    // сумма недель по каждой валюте = сумма «ближайших» на горизонте 56 дней (те же правила, без двойного учёта)
+    const byCur = (rows: any[]) => Object.fromEntries(rows.map((r: any) => [r.currency, Number(r.amount)]));
+    const fcSum: Record<string, number> = {};
+    for (const w of d.forecast.weeks) for (const r of w.byCurrency) fcSum[r.currency] = (fcSum[r.currency] ?? 0) + Number(r.amount);
+    for (const [cur, v] of Object.entries(byCur(d.upcoming.byCurrency))) expect(fcSum[cur] ?? 0).toBeCloseTo(v as number, 2);
+    expect(d.breakdown.projects.length).toBeGreaterThan(0);
+    const u = d.breakdown.projects.map((x: any) => Number(x.uzs));
+    expect(u).toEqual([...u].sort((a: number, b: number) => b - a));
+    expect(d.breakdown.executors).toBeInstanceOf(Array);
+    expect(d.debtTrend).toBeNull(); // снимков старше месяца нет
+  });
+
   it('нет подтверждённого курса — эквивалент не выдумывается, итог неполный, причина названа', async () => {
     const d = await dash(`supplierId=${S3}`);
     const rub = d.kpi.byCurrency[0];
@@ -187,9 +203,9 @@ describe('M6: дашборд', () => {
 });
 
 describe('M6: отчёты', () => {
-  it('каталог: 11 отчётов', async () => {
+  it('каталог: 12 отчётов', async () => {
     const c = (await viewer.agent.get('/api/reports')).body;
-    expect(c.map((x: any) => x.id).sort()).toEqual(['currency-analytics', 'debt-by-contract', 'debt-by-executor', 'debt-by-project', 'debt-by-supplier', 'overdue', 'overpayments', 'payments', 'plan', 'plan-vs-fact', 'total-debt'].sort());
+    expect(c.map((x: any) => x.id).sort()).toEqual(['currency-analytics', 'debt-by-contract', 'debt-by-executor', 'debt-by-project', 'debt-by-supplier', 'overdue', 'overpayments', 'payments', 'plan', 'plan-vs-fact', 'supplier-statement', 'total-debt'].sort());
     expect((await viewer.agent.get('/api/reports/nope')).status).toBe(400);
   });
 
@@ -341,7 +357,22 @@ describe('M6: экспорт отчётов', () => {
     for (const f of ['xlsx', 'csv', 'pdf']) expect((await exp('overdue', `supplierId=${empty}&format=${f}`)).status).toBe(200);
   });
 
-  it('все 11 отчётов строятся и экспортируются', async () => {
+  it('акт сверки с контрагентом: разбивка оплаты, итоги по валютам, подпись; без контрагента — 400; PDF строится', async () => {
+    expect((await viewer.agent.get('/api/reports/supplier-statement')).status).toBe(400);
+    const r = (await viewer.agent.get(`/api/reports/supplier-statement?supplierId=${S}`)).body;
+    expect(r.title).toBe('Акт сверки с контрагентом');
+    expect(r.rows.length).toBe(3);
+    for (const x of r.rows) {
+      expect(Number(x.paid)).toBeCloseTo(Number(x.opening) + Number(x.newPaid), 2);          // оплачено всего = по таблице + платежи приложения
+      expect(Number(x.debt)).toBeCloseTo(Math.max(0, Number(x.amount) - Number(x.paid)), 2);  // остаток = сумма − оплачено, не ниже нуля
+    }
+    expect(r.totals.some((t: any) => t.currency === 'USD' && Number(t.amount) === 10000)).toBe(true);
+    expect(r.warnings.join(' ')).toMatch(/Подпись организации/);
+    const pdf = await exp('supplier-statement', `supplierId=${S}&format=pdf`);
+    expect(pdf.status).toBe(200);
+  });
+
+  it('все 12 отчётов строятся и экспортируются', async () => {
     const ids = (await viewer.agent.get('/api/reports')).body.map((x: any) => x.id);
     for (const id of ids) {
       expect((await viewer.agent.get(`/api/reports/${id}?supplierId=${S}`)).status, id).toBe(200);

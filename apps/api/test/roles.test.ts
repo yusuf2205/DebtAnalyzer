@@ -218,3 +218,101 @@ describe('встроенные роли: настройка прав', () => {
     await expect(prisma.roleOverride.create({ data: { role: 'VIEWER', permissions: ['roles.manage'] } })).rejects.toThrow();
   });
 });
+
+describe('массовые действия над договорами', () => {
+  async function three() {
+    const sup = (await post(admin, '/api/suppliers').send({ name: `BULK-${uniq()}` })).body.id;
+    const mk = async () => (await post(admin, '/api/contracts').send({ supplierId: sup, number: `BK-${uniq()}`, amount: '1000', currency: 'USD', openingPaid: '0' })).body.id as string;
+    return [await mk(), await mk(), await mk()];
+  }
+  const bulk = (s: S, body: object) => post(s, '/api/contracts/bulk').send(body);
+
+  it('архив/восстановление/исполнитель: счётчики, повторы пропускаются, архивным исполнителя не меняют; каждое изменение — в аудите с пометкой bulk', async () => {
+    const [a, b, c] = await three();
+    expect((await bulk(mgr, { action: 'archive', ids: [a, b] })).body).toEqual({ updated: 2, skipped: 0 });
+    expect((await bulk(mgr, { action: 'archive', ids: [a, b, randomUUID()] })).body).toEqual({ updated: 0, skipped: 3 }); // уже в архиве / не найден
+    const ex = await bulk(mgr, { action: 'executor', ids: [a, c], executor: 'Иванов' });
+    expect(ex.body).toEqual({ updated: 1, skipped: 1 }); // архивный a пропущен
+    expect((await prisma.contract.findUniqueOrThrow({ where: { id: c } })).executor).toBe('Иванов');
+    expect((await prisma.contract.findUniqueOrThrow({ where: { id: a } })).executor).toBeNull();
+    expect((await bulk(mgr, { action: 'executor', ids: [c], executor: null })).body).toEqual({ updated: 1, skipped: 0 }); // очистка
+    expect((await bulk(mgr, { action: 'restore', ids: [a] })).body).toEqual({ updated: 1, skipped: 0 });
+    const log = await prisma.auditLog.findMany({ where: { entityId: { in: [a, b, c] }, entity: 'Contract' } });
+    const bulkLogs = log.filter((l) => (l.meta as any)?.bulk);
+    expect(bulkLogs.map((l) => l.action).sort()).toEqual(['contract.archive', 'contract.archive', 'contract.restore', 'contract.update', 'contract.update']);
+  });
+
+  it('права как у одиночных операций; валидация; суммы массово не меняются', async () => {
+    const [a] = await three();
+    const viewer = await user(admin, `rl-bv-${uniq()}@example.test`, { role: 'VIEWER' });
+    expect((await bulk(viewer, { action: 'archive', ids: [a] })).status).toBe(403);
+    // роль с «архивированием», но без «изменения договоров»
+    const role = (await mkRole(admin, `Архивариус ${uniq()}`, ['contracts.view', 'contracts.archive'])).body;
+    const arch = await user(admin, `rl-ba-${uniq()}@example.test`, { customRoleId: role.id });
+    expect((await bulk(arch, { action: 'executor', ids: [a], executor: 'X' })).status).toBe(403);
+    expect((await bulk(arch, { action: 'archive', ids: [a] })).body).toEqual({ updated: 1, skipped: 0 });
+    expect((await bulk(admin, { action: 'archive', ids: [] })).status).toBe(400);
+    expect((await bulk(admin, { action: 'archive', ids: Array.from({ length: 501 }, () => randomUUID()) })).status).toBe(400);
+    expect((await bulk(admin, { action: 'executor', ids: [a] })).status).toBe(400); // не указан исполнитель
+    expect((await bulk(admin, { action: 'archive', ids: ['not-a-uuid'] })).status).toBe(400);
+    expect((await bulk(admin, { action: 'amount', ids: [a] })).status).toBe(400);   // других действий нет
+  });
+});
+
+describe('местный / зарубежный', () => {
+  async function pair() {
+    const mkSup = async (name: string) => (await post(admin, '/api/suppliers').send({ name })).body.id as string;
+    const mk = async (supplierId: string, currency: string) => (await post(admin, '/api/contracts').send({ supplierId, number: `OR-${uniq()}`, amount: '1000', currency, openingPaid: '0' })).body.id as string;
+    const tag = uniq();
+    const local = await mk(await mkSup(`LOC-${tag} MCHJ`), 'USD');      // MCHJ → местный, хотя договор в USD
+    const foreign = await mk(await mkSup(`FOR-${tag} TRADING LTD`), 'EUR'); // иностранная валюта, местных признаков нет
+    const uzs = await mk(await mkSup(`Ivanov ${tag}`), 'UZS');          // UZS → местный
+    return { tag, local, foreign, uzs };
+  }
+  const list = async (q: string) => (await admin.agent.get(`/api/contracts?${q}&pageSize=500&status=ALL`)).body;
+
+  it('предложение считается, но не записывается; фильтр идёт по действующему значению; подтверждение фиксирует', async () => {
+    const { tag, local, foreign, uzs } = await pair();
+    const rows = (await list(`q=${tag}`)).items;
+    const by = (id: string) => rows.find((r: any) => r.id === id);
+    expect(by(local)).toMatchObject({ origin: null, originSuggested: 'LOCAL', originEffective: 'LOCAL' });
+    expect(by(foreign)).toMatchObject({ origin: null, originSuggested: 'FOREIGN', originEffective: 'FOREIGN' });
+    expect(by(uzs)).toMatchObject({ originSuggested: 'LOCAL' });
+    expect((await list(`q=${tag}&origin=LOCAL`)).items.map((r: any) => r.id).sort()).toEqual([local, uzs].sort());
+    expect((await list(`q=${tag}&origin=FOREIGN`)).items.map((r: any) => r.id)).toEqual([foreign]);
+    expect((await prisma.contract.findUniqueOrThrow({ where: { id: foreign } })).origin).toBeNull(); // ничего не записано без подтверждения
+
+    // ручное решение сильнее предложения
+    expect((await patch(admin, `/api/contracts/${foreign}`).send({ origin: 'LOCAL' })).status).toBe(200);
+    expect((await list(`q=${tag}&origin=LOCAL`)).items.map((r: any) => r.id).sort()).toEqual([local, uzs, foreign].sort());
+    expect(by(foreign)).toBeDefined();
+    expect((await list(`q=${tag}`)).items.find((r: any) => r.id === foreign)).toMatchObject({ origin: 'LOCAL', originSuggested: 'FOREIGN', originEffective: 'LOCAL' });
+  });
+
+  it('массово: «принять предложения» только для неподтверждённых; явное значение; сброс; аудит; права', async () => {
+    const { tag, local, foreign, uzs } = await pair();
+    expect((await post(admin, '/api/contracts/bulk').send({ action: 'origin', ids: [uzs], origin: 'FOREIGN' })).body).toEqual({ updated: 1, skipped: 0 });
+    const acc = await post(admin, '/api/contracts/bulk').send({ action: 'origin-accept', ids: [local, foreign, uzs] });
+    expect(acc.body).toEqual({ updated: 2, skipped: 1 }); // uzs уже подтверждён вручную
+    const rows = (await list(`q=${tag}`)).items;
+    expect(rows.find((r: any) => r.id === local)).toMatchObject({ origin: 'LOCAL' });
+    expect(rows.find((r: any) => r.id === foreign)).toMatchObject({ origin: 'FOREIGN' });
+    expect(rows.find((r: any) => r.id === uzs)).toMatchObject({ origin: 'FOREIGN' }); // осталось выбранное вручную, не предложение
+    expect((await post(admin, '/api/contracts/bulk').send({ action: 'origin', ids: [local], origin: null })).body).toEqual({ updated: 1, skipped: 0 });
+    expect((await post(admin, '/api/contracts/bulk').send({ action: 'origin', ids: [local] })).status).toBe(400); // значение не указано
+    const logs = await prisma.auditLog.findMany({ where: { entityId: foreign, entity: 'Contract' } });
+    expect(logs.some((l) => (l.meta as any)?.acceptedSuggestion === true)).toBe(true);
+    const viewer = await user(admin, `rl-ov-${uniq()}@example.test`, { role: 'VIEWER' });
+    expect((await post(viewer, '/api/contracts/bulk').send({ action: 'origin-accept', ids: [local] })).status).toBe(403);
+  });
+
+  it('фильтр «местный / зарубежный» работает на Dashboard и в отчётах', async () => {
+    const { tag } = await pair();
+    const d = (await admin.agent.get(`/api/dashboard?origin=FOREIGN`)).body;
+    const all = (await admin.agent.get(`/api/dashboard`)).body;
+    expect(d.kpi.contracts).toBeLessThan(all.kpi.contracts);
+    expect(d.kpi.contracts).toBeGreaterThanOrEqual(1);
+    expect((await admin.agent.get('/api/dashboard?origin=XXX')).status).toBe(400);
+    expect(tag).toBeTruthy();
+  });
+});

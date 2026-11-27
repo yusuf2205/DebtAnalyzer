@@ -29,9 +29,12 @@ export default function ReportsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Ссылки вида /reports?report=supplier-statement&supplierId=…&supplierName=… (кнопка «Акт сверки» у контрагента)
+  useEffect(() => { const p = new URLSearchParams(window.location.search); if (p.get('report')) setId(p.get('report')!); if (p.get('supplierId')) setSupplier({ id: p.get('supplierId')!, name: p.get('supplierName') ?? 'Контрагент' }); }, []);
   useEffect(() => { api('GET', '/reports').then(setCatalog).catch((e) => setError(e.message)); }, []);
   const params = useMemo(() => qs({ ...f, supplierId: supplier?.id }), [f, supplier]);
   useEffect(() => {
+    if (id === 'supplier-statement' && !supplier) { setR(null); setError(''); setLoading(false); return; } // акт — по одному контрагенту
     setLoading(true);
     const t = setTimeout(() => api('GET', `/reports/${id}?${params}`).then((x) => { setR(x); setError(''); }).catch((e) => { setError(e.message); setR(null); }).finally(() => setLoading(false)), f.project || f.executor ? 300 : 0);
     return () => clearTimeout(t);
@@ -82,7 +85,7 @@ export default function ReportsPage() {
             </div>
             {r.rows.length > MAX_PREVIEW && <p className="text-xs muted">На экране первые {MAX_PREVIEW} строк из {r.rows.length}; в файл попадают все.</p>}
           </>)}
-          {!r && !error && <p className="muted">{loading ? 'Формируем отчёт…' : ''}</p>}
+          {!r && !error && <p className="muted">{loading ? 'Формируем отчёт…' : id === 'supplier-statement' && !supplier ? 'Выберите контрагента в фильтре выше — акт сверки составляется по одному контрагенту.' : ''}</p>}
         </div>
       </div>
     </div>

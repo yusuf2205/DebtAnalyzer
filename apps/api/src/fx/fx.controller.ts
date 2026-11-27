@@ -5,13 +5,14 @@ import { ClientIp, CurrentUser, RequirePermission } from '../auth/decorators';
 import { parse } from '../common/zod';
 import type { AuthUser } from '../common/types';
 import { PrismaService } from '../prisma/prisma.service';
+import { CbuService } from './cbu.service';
 
 const cur = z.enum(['USD', 'UZS', 'RUB', 'EUR']);
 
 /** Курсы: UZS за 1 единицу. Исторические записи неизменяемы — меняется только статус кандидата, значения не правятся. */
 @Controller('fx')
 export class FxController {
-  constructor(private prisma: PrismaService, private audit: AuditService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService, private cbu: CbuService) {}
 
   @Get('rates') @RequirePermission('fx.view')
   list(@Query('status') raw?: string) {
@@ -27,6 +28,13 @@ export class FxController {
     const r = await this.prisma.fxRate.create({ data: { currency: d.currency, uzsPerUnit: d.uzsPerUnit, effectiveDate: new Date(d.effectiveDate), source: `MANUAL:${d.source}`, status: 'CONFIRMED', setById: u.id, confirmedById: u.id, confirmedAt: new Date() } });
     await this.audit.log({ userId: u.id, userEmail: u.email, action: 'fx.create', entity: 'FxRate', entityId: r.id, after: r, ip });
     return r;
+  }
+
+  /** Подтянуть официальные курсы ЦБ (USD, EUR, RUB) как «ожидают подтверждения» — применять их или нет, решает человек. */
+  @Post('fetch-cbu') @RequirePermission('fx.manage')
+  async fetchCbu(@CurrentUser() u: AuthUser, @ClientIp() ip: string | null) {
+    try { return await this.cbu.sync({ id: u.id, email: u.email }, ip); }
+    catch (e) { throw new BadRequestException(`Не удалось получить курсы ЦБ: ${(e as Error).message}`); }
   }
 
   @Post('rates/:id/confirm') @RequirePermission('fx.manage')

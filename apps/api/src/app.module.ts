@@ -16,17 +16,21 @@ import { ReportsController } from './reports/reports.controller';
 import { ReportsService } from './reports/reports.service';
 import { SystemController } from './system/system.controller';
 import { CalendarController } from './calendar/calendar.controller';
+import { CbuService } from './fx/cbu.service';
 import { FxController } from './fx/fx.controller';
 import { HealthController } from './health/health.controller';
 import { ImportsController } from './imports/imports.controller';
 import { ImportsService } from './imports/imports.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { DigestService } from './notifications/digest.service';
+import { NotificationsController } from './notifications/notifications.controller';
+import { NotificationsService } from './notifications/notifications.service';
 import { RolesController } from './roles/roles.controller';
 import { UsersController } from './users/users.controller';
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]), PrismaModule, AuditModule, AuthModule],
-  controllers: [HealthController, UsersController, RolesController, ImportsController, FxController, SuppliersController, ContractsController, GoogleController, PaymentsController, ReconciliationController, CalendarController, DashboardController, ReportsController, SystemController],
-  providers: [ImportsService, AnalyticsService, ReportsService, GoogleClient, GoogleSyncService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  controllers: [HealthController, UsersController, RolesController, ImportsController, FxController, SuppliersController, ContractsController, GoogleController, PaymentsController, ReconciliationController, CalendarController, DashboardController, ReportsController, SystemController, NotificationsController],
+  providers: [CbuService, ImportsService, AnalyticsService, DigestService, NotificationsService, ReportsService, GoogleClient, GoogleSyncService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
